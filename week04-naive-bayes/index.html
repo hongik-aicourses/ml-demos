@@ -25,7 +25,7 @@
 
   One self-contained file: no server, no network, no libraries.
   Keys: Right arrow or N = next clue, A = all clues, R = reset,
-        V = the video's three words, W = every known word in the email.
+        V = count winner, free and meeting, W = every known word in the email.
 -->
 <style>
 :root {
@@ -141,7 +141,7 @@ footer a { color: var(--accent); }
   <button id="bNext" class="primary">Next clue</button>
   <button id="bAll">All clues</button>
   <button id="bReset">Reset</button>
-  <button id="bVideo">The video's three words</button>
+  <button id="bVideo">winner, free, meeting</button>
   <button id="bEvery">Every known word in the email</button>
 </div>
 
@@ -233,7 +233,7 @@ function renderEmail() {
   const extra = [...chosen].filter((w) => !known.has(w));
   let note = "";
   if (skipped.length) note += `Underlined: ${skipped.join(", ")} ${skipped.length > 1 ? "are" : "is"} in the table but not counted` +
-    (VIDEO.every((w) => chosen.has(w)) && chosen.size === 3 ? " &mdash; the video counts only winner, free and meeting. Click the rows, or press <b>Every known word</b>, to count them too." : ". Click the row to count it.");
+    (VIDEO.every((w) => chosen.has(w)) && chosen.size === 3 ? " &mdash; only winner, free and meeting are counted. Click the rows, or press <b>Every known word</b>, to count them too." : ". Click the row to count it.");
   if (extra.length) note += (note ? " " : "") + `Counted but not in the email: ${extra.join(", ")}.`;
   document.getElementById("skipNote").innerHTML = note;
 }
@@ -319,7 +319,7 @@ function renderLogOdds() {
 function caption() {
   const ws = order(), k = Math.min(shown, ws.length);
   let c;
-  if (!ws.length) c = "No clue is counted, so each class keeps its prior. Click a word in the table, or press <b>The video's three words</b>.";
+  if (!ws.length) c = "No clue is counted, so each class keeps its prior. Click a word in the table, or press <b>winner, free, meeting</b>.";
   else if (k === 0) c = `Each class starts from its prior: ${pct(prior())} of emails are spam and ${pct(1 - prior())} are normal. Press <b>Next clue</b> to multiply in the first word.`;
   else if (k < ws.length) {
     const w = ws[k - 1];

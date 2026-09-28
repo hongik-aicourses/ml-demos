@@ -123,7 +123,7 @@ main {
 
 
 .card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px; }
-.card h2 { font-size: 13.5px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.card h2 { font-size: 15px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
 .left, .right { display: grid; gap: 10px; min-width: 0; min-height: 0; }
 .left { grid-template-rows: minmax(0, 1fr) auto auto; }
 .right { grid-template-rows: minmax(0, 1fr) auto; }
@@ -131,7 +131,7 @@ main {
 .card.grow { display: flex; flex-direction: column; min-height: 0; }
 .card.grow svg { flex: 1; min-height: 110px; height: 100%; }
 #chart { min-height: 250px; }
-.bars svg { height: 88px; }
+.bars svg { height: 150px; }
 svg { display: block; width: 100%; }
 .caption {
   font-size: 18px; min-height: 3.1em; padding: 8px 14px;
@@ -177,7 +177,7 @@ footer a { color: var(--line); }
   .vars .v { font-size: 14px; padding: 1px 4px; }
   .caption { font-size: 16px; min-height: 2.9em; padding: 6px 12px; }
   .caption .math { font-size: 14px; }
-  .bars svg { height: 66px; }
+  .bars svg { height: 112px; }
   .card.grow svg { min-height: 80px; }
   footer { padding: 3px 16px 4px; font-size: 11.5px; }
   #chart { min-height: 200px; }
@@ -191,7 +191,7 @@ footer a { color: var(--line); }
   .vars .v { font-size: 19px; }
   .caption { font-size: 21px; }
   .caption .math { font-size: 18px; }
-  .bars svg { height: 110px; }
+  .bars svg { height: 200px; }
 }
 </style>
 </head>
@@ -499,7 +499,7 @@ function drawChart() {
 
 function drawBars(id, vals, sum, color, scaleVals) {
   const svg = document.getElementById(id); svg.replaceChildren();
-  const { W, H } = fit(svg, 200, 70), m = { l: 6, r: 6, t: 20, b: 16 };
+  const { W, H } = fit(svg, 200, 90), m = { l: 6, r: 6, t: 26, b: 20 };
   const ref = (scaleVals || vals).filter((v) => v !== null && Number.isFinite(v));
   const pos = Math.max(0, ...ref), neg = Math.max(0, ...ref.map((v) => -v));
   const span = pos + neg || 1, plotH = H - m.t - m.b, zero = m.t + (pos / span) * plotH, k = plotH / span;
@@ -507,32 +507,32 @@ function drawBars(id, vals, sum, color, scaleVals) {
   svg.append(el("line", { x1: m.l, x2: W - m.r, y1: zero, y2: zero, stroke: css("--rule") }));
   vals.forEach((v, i) => {
     const x = m.l + i * bw + bw * 0.2;
-    svg.append(el("text", { x: x + bw * 0.3, y: H - 3, "text-anchor": "middle", "font-size": 11, fill: css("--muted") }, i + 1));
+    svg.append(el("text", { x: x + bw * 0.3, y: H - 3, "text-anchor": "middle", "font-size": 14, fill: css("--muted") }, i + 1));
     if (v === null || !Number.isFinite(v)) return;
     const h = Math.min(plotH, Math.abs(v) * k);
     svg.append(el("rect", { x, width: bw * 0.6, y: v < 0 ? zero : zero - h, height: Math.max(1, h), fill: color, rx: 2 }));
   });
-  svg.append(el("text", { x: W - m.r, y: 13, "text-anchor": "end", "font-size": 13, fill: css("--ink"),
+  svg.append(el("text", { x: W - m.r, y: 17, "text-anchor": "end", "font-size": 16, fill: css("--ink"),
     "font-family": "ui-monospace, Menlo, Consolas, monospace" }, `sum = ${sum === null ? "—" : g(sum)}`));
 }
 
 function drawLoss() {
   const svg = document.getElementById("lossChart"); svg.replaceChildren();
-  const { W, H } = fit(svg, 160, 60), m = { l: 34, r: 6, t: 4, b: 16 };
+  const { W, H } = fit(svg, 160, 90), m = { l: 42, r: 6, t: 6, b: 20 };
   const Ls = S.losses.filter(Number.isFinite);
   const hi = Math.max(0.8, ...Ls) * 1.05, lo = 0;
   const lx = (e) => m.l + (e / EPOCHS) * (W - m.l - m.r), ly = (v) => H - m.b - ((v - lo) / (hi - lo)) * (H - m.t - m.b);
   for (const v of [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5].filter((v) => v <= hi)) {
     svg.append(el("line", { x1: m.l, x2: W - m.r, y1: ly(v), y2: ly(v), stroke: css("--grid") }));
-    svg.append(el("text", { x: m.l - 4, y: ly(v) + 4, "text-anchor": "end", "font-size": 11, fill: css("--muted") }, v));
+    svg.append(el("text", { x: m.l - 4, y: ly(v) + 4, "text-anchor": "end", "font-size": 14, fill: css("--muted") }, v));
   }
-  [0, 500, 1000].forEach((e) => svg.append(el("text", { x: lx(e), y: H - 3, "text-anchor": e ? (e === 1000 ? "end" : "middle") : "start", "font-size": 11, fill: css("--muted") }, e)));
+  [0, 500, 1000].forEach((e) => svg.append(el("text", { x: lx(e), y: H - 3, "text-anchor": e ? (e === 1000 ? "end" : "middle") : "start", "font-size": 14, fill: css("--muted") }, e)));
   if (S.min) svg.append(el("line", { x1: m.l, x2: W - m.r, y1: ly(S.min.L), y2: ly(S.min.L), stroke: css("--exact"), "stroke-dasharray": "5 5" }));
   let d = ""; S.losses.forEach((v, e) => { if (Number.isFinite(v)) d += (d ? "L" : "M") + lx(e).toFixed(1) + "," + ly(v).toFixed(1); });
   svg.append(el("path", { d, fill: "none", stroke: css("--line"), "stroke-width": 2.2 }));
-  svg.append(el("text", { x: W - m.r, y: 13, "text-anchor": "end", "font-size": 12, fill: css("--ink"),
+  svg.append(el("text", { x: W - m.r, y: 17, "text-anchor": "end", "font-size": 15, fill: css("--ink"),
     "font-family": "ui-monospace, Menlo, Consolas, monospace" }, `now ${f(S.losses.at(-1), 4)}`));
-  svg.append(el("text", { x: W - m.r, y: 27, "text-anchor": "end", "font-size": 12, fill: css("--exact"),
+  svg.append(el("text", { x: W - m.r, y: 35, "text-anchor": "end", "font-size": 15, fill: css("--exact"),
     "font-family": "ui-monospace, Menlo, Consolas, monospace" }, S.min ? `minimum ${f(S.min.L, 4)}` : "no minimum"));
 }
 

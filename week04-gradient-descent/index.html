@@ -1,0 +1,733 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gradient Descent, Line by Line</title>
+<meta name="description" content="Week 4 demo: linear regression fitted by gradient descent, stepping through the Python loop one line at a time.">
+<!--
+  (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
+  licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
+  Commercial use, closed-source use, or any other licensing: by permission,
+  jangkj@hongik.ac.kr. The loop, the order of the steps and the eight data points follow
+  the short video "Machine Learning From Scratch, Part 1" by @machinelearningtogo
+  (https://www.tiktok.com/@machinelearningtogo), credited on the page.
+
+  Week 4, Hour 1 demo --- linear regression fitted by gradient descent.
+  One self-contained file: no server, no network, no libraries. Open it directly
+  in a browser (double-click), or serve it from any static host.
+
+  It steps through the same thirteen-line loop as the slides
+  (inc-week04-gd-part1.tex) and the short video "Machine Learning From Scratch,
+  Part 1" (@machinelearningtogo), whose eight measurements it uses. The five-point
+  data set is the first five of those. With 8 points and eta = 0.01 the numbers
+  match the slides: loss 34.92 at the start, w = 0.589, b = 0.112 after one epoch,
+  w = 0.802, b = 1.995 after 1000.
+
+  Keys: Right arrow or N = next line, P = next point, E = next epoch,
+        Space = play / pause line by line, F = run all epochs, R = reset,
+        X = show / hide the exact answer.
+-->
+<style>
+:root {
+  --bg: #ffffff;
+  --panel: #f4f5f7;
+  --ink: #1a1a1a;
+  --muted: #5b6068;
+  --rule: #d9dce1;
+  --grid: #eceef1;
+  --line: #2f6fbf;
+  --err: #c00000;
+  --pos: #1e8e5a;
+  --exact: #b7791f;
+  --hl: #fff1c2;
+  --hl-ink: #1a1a1a;
+  --btn: #ffffff;
+  --btn-ink: #1a1a1a;
+  --btn-edge: #b9bec6;
+  --btn-primary: #2f6fbf;
+  --btn-primary-ink: #ffffff;
+  --code-bg: #fbfbfc;
+  --comment: #8a8f98;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418;
+    --panel: #1a1f26;
+    --ink: #e8eaed;
+    --muted: #9aa3ae;
+    --rule: #2c333c;
+    --grid: #222931;
+    --line: #6ea8ff;
+    --err: #ff6b6b;
+    --pos: #4fcf8e;
+    --exact: #e0b04f;
+    --hl: #3a3320;
+    --hl-ink: #fff4d6;
+    --btn: #1f252d;
+    --btn-ink: #e8eaed;
+    --btn-edge: #3a424d;
+    --btn-primary: #4a86d8;
+    --btn-primary-ink: #0b0e12;
+    --code-bg: #151a20;
+    --comment: #7d8793;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+  --grid: #222931; --line: #6ea8ff; --err: #ff6b6b; --pos: #4fcf8e; --exact: #e0b04f;
+  --hl: #3a3320; --hl-ink: #fff4d6; --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d;
+  --btn-primary: #4a86d8; --btn-primary-ink: #0b0e12; --code-bg: #151a20; --comment: #7d8793;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+}
+header {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px;
+  padding: 10px 20px 6px; border-bottom: 1px solid var(--rule);
+}
+header h1 { font-size: 22px; margin: 0; font-weight: 650; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); font-size: 14px; }
+.controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 8px 20px; border-bottom: 1px solid var(--rule); background: var(--panel);
+}
+.controls .group { display: flex; align-items: center; gap: 6px; }
+.controls .sep { width: 1px; align-self: stretch; background: var(--rule); margin: 0 4px; }
+label { font-size: 14px; color: var(--muted); }
+select, button, input[type=range] { font: inherit; font-size: 15px; }
+select {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 8px;
+}
+button {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
+}
+button.primary { background: var(--btn-primary); color: var(--btn-primary-ink); border-color: var(--btn-primary); }
+button:hover { filter: brightness(0.97); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--line); outline-offset: 2px; }
+kbd {
+  font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; color: inherit; opacity: 0.75;
+  border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; margin-left: 4px;
+}
+main {
+  display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 12px; padding: 10px 20px 12px;
+}
+@media (min-width: 901px) and (min-height: 600px) {
+  body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  main { flex: 1; min-height: 0; }
+}
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+@media (max-width: 1440px) { kbd { display: none; } }
+@media (min-width: 1800px) and (min-height: 1000px) {
+  body { font-size: 18px; }
+  header h1 { font-size: 26px; }
+  select, button { font-size: 17px; }
+  .card h2 { font-size: 15px; }
+  .code { font-size: 19px; }
+  .vars .v { font-size: 19px; }
+  .caption { font-size: 21px; }
+  .caption .math { font-size: 18px; }
+  .bars svg { height: 110px; }
+}
+@media (min-width: 901px) and (max-height: 820px) {
+  header { padding: 6px 20px 4px; }
+  header h1 { font-size: 19px; }
+  .controls { padding: 5px 20px; }
+  main { gap: 8px; padding: 6px 16px 8px; }
+  .left, .right { gap: 7px; }
+  .card { padding: 5px 8px; }
+  .card h2 { font-size: 12px; margin-bottom: 3px; }
+  .code { font-size: 13.5px; line-height: 1.38; padding: 3px 0; }
+  .vars .v { font-size: 14px; padding: 1px 4px; }
+  .caption { font-size: 16px; min-height: 2.9em; padding: 6px 12px; }
+  .caption .math { font-size: 14px; }
+  .bars svg { height: 66px; }
+  .card.grow svg { min-height: 80px; }
+  footer { padding: 3px 16px 4px; font-size: 11.5px; }
+  #chart { min-height: 200px; }
+}
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px; }
+.card h2 { font-size: 13.5px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.left, .right { display: grid; gap: 10px; min-width: 0; min-height: 0; }
+.left { grid-template-rows: minmax(0, 1fr) auto auto; }
+.right { grid-template-rows: minmax(0, 1fr) auto; }
+.card.grow .code { flex: 1; overflow: auto; }
+.card.grow { display: flex; flex-direction: column; min-height: 0; }
+.card.grow svg { flex: 1; min-height: 110px; height: 100%; }
+#chart { min-height: 250px; }
+.bars svg { height: 88px; }
+svg { display: block; width: 100%; }
+.caption {
+  font-size: 18px; min-height: 3.1em; padding: 8px 14px;
+  background: var(--bg); border: 1px solid var(--rule); border-left: 4px solid var(--line);
+  border-radius: 8px;
+}
+.caption .math { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 16px; }
+.bars { display: grid; grid-template-columns: 1fr 1fr 1.25fr; gap: 10px; }
+@media (max-width: 900px) { .bars { grid-template-columns: 1fr 1fr; } }
+.code {
+  font: 15.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  background: var(--code-bg); border: 1px solid var(--rule); border-radius: 8px;
+  padding: 6px 0; overflow-x: auto;
+}
+.code .ln { display: grid; grid-template-columns: 2.4em 1fr; padding: 0 10px 0 0; white-space: pre; }
+.code .ln .no { color: var(--muted); text-align: right; padding-right: 12px; user-select: none; }
+.code .ln.on { background: var(--hl); color: var(--hl-ink); }
+.code .ln.on .no { color: var(--hl-ink); font-weight: 700; }
+.code .c { color: var(--comment); }
+.vars { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; font-variant-numeric: tabular-nums; }
+.vars .v { display: flex; justify-content: space-between; padding: 2px 4px; border-bottom: 1px solid var(--rule);
+  font: 16px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.vars .v .k { color: var(--muted); }
+.vars .v.changed .val { color: var(--err); font-weight: 700; }
+.note { color: var(--muted); font-size: 13px; }
+footer {
+  padding: 4px 20px 6px; border-top: 1px solid var(--rule); background: var(--panel);
+  font-size: 12.5px; color: var(--muted);
+}
+footer a { color: var(--line); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Linear regression by gradient descent, line by line</h1>
+  <p>Week 4, Hour 1 &middot; the loop from the slides, run on the data of the video</p>
+</header>
+
+<div class="controls" role="toolbar" aria-label="Demo controls">
+  <div class="group">
+    <label for="data">Data</label>
+    <select id="data">
+      <option value="8" selected>8 points (video)</option>
+      <option value="5">5 points</option>
+    </select>
+  </div>
+  <div class="group">
+    <label for="lr">&eta;</label>
+    <select id="lr">
+      <option value="0.001">0.001</option>
+      <option value="0.01" selected>0.01 (video)</option>
+      <option value="0.03">0.03</option>
+      <option value="0.04">0.04</option>
+    </select>
+  </div>
+  <span class="sep" aria-hidden="true"></span>
+  <div class="group">
+    <button id="bLine" class="primary">Next line<kbd>&rarr;</kbd></button>
+    <button id="bPoint">Next point<kbd>P</kbd></button>
+    <button id="bEpoch">Next epoch<kbd>E</kbd></button>
+  </div>
+  <div class="group">
+    <button id="bPlay">Play<kbd>Space</kbd></button>
+    <label for="speed" class="sr">Speed</label>
+    <input id="speed" type="range" min="1" max="10" value="4" aria-label="Playback speed" style="width: 90px">
+  </div>
+  <div class="group">
+    <button id="bRun">Run all<kbd>F</kbd></button>
+    <button id="bReset">Reset<kbd>R</kbd></button>
+  </div>
+  <div class="group">
+    <label><input id="exact" type="checkbox"> exact answer<kbd>X</kbd></label>
+  </div>
+</div>
+
+<main>
+  <section class="left">
+    <div class="card grow">
+      <svg id="chart" role="img" aria-label="The data, the current line and the errors"></svg>
+    </div>
+    <div class="caption" id="caption" aria-live="polite"></div>
+    <div class="bars">
+      <div class="card"><h2>Votes on the tilt: dL/dw</h2><svg id="barW"></svg></div>
+      <div class="card"><h2>Votes on the lift: dL/db</h2><svg id="barB"></svg></div>
+      <div class="card"><h2>Loss by epoch (log scale)</h2><svg id="lossChart"></svg></div>
+    </div>
+  </section>
+
+  <section class="right">
+    <div class="card grow">
+      <h2>linear_regression.py</h2>
+      <div class="code" id="code"></div>
+    </div>
+    <div class="card">
+      <h2>Variables</h2>
+      <div class="vars" id="vars"></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  &copy; 2026 Kuk Jin Jang, Hongik University &middot;
+  <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>; commercial or
+  closed-source use by permission (<a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>) &middot;
+  the loop, the order of the steps and the eight data points follow the short video
+  &ldquo;Machine Learning From Scratch, Part 1&rdquo; by
+  <a href="https://www.tiktok.com/@machinelearningtogo">@machinelearningtogo</a> on TikTok
+</footer>
+
+<script>
+"use strict";
+// ---- data and settings --------------------------------------------------------
+const DATA = {
+  8: { xs: [1, 2, 3, 4, 5, 6, 7, 8], ys: [2.9, 3.4, 4.9, 4.7, 6.2, 6.9, 7.3, 8.6] },
+  5: { xs: [1, 2, 3, 4, 5],          ys: [2.9, 3.4, 4.9, 4.7, 6.2] },
+};
+const EPOCHS = 1000;
+
+const CODE = [
+  ["xs = {XS}", ""],
+  ["ys = {YS}", ""],
+  ["w, b = 0.0, 0.0", ""],
+  ["lr = {LR}", ""],
+  ["for epoch in range(1000):", ""],
+  ["    dw, db = 0.0, 0.0", "# reset the two sums"],
+  ["    for x, y in zip(xs, ys):", "# visit every point"],
+  ["        pred = w * x + b", "# prediction"],
+  ["        err = pred - y", "# error"],
+  ["        dw += 2 * err * x / len(xs)", "# contribution to dL/dw"],
+  ["        db += 2 * err / len(xs)", "# contribution to dL/db"],
+  ["    w -= lr * dw", "# step against the error"],
+  ["    b -= lr * db", ""],
+];
+
+// ---- state --------------------------------------------------------------------
+let S;               // the interpreter state
+let timer = null;    // line-by-line playback
+let running = false; // run-all-epochs animation
+let showExact = false;
+
+function newState() {
+  const n = +document.getElementById("data").value;
+  const lr = +document.getElementById("lr").value;
+  const { xs, ys } = DATA[n];
+  return {
+    xs, ys, n, lr,
+    line: 1,          // the line about to run (1-based)
+    started: false,   // true once line 1 has run
+    epoch: 0,         // epochs completed
+    k: -1,            // index of the current point
+    w: 0, b: 0, dw: null, db: null, x: null, y: null, pred: null, err: null,
+    cw: new Array(xs.length).fill(null),  // contributions this epoch
+    cb: new Array(xs.length).fill(null),
+    lastCw: null, lastCb: null,           // the last complete epoch's contributions
+    losses: [mse(0, 0, xs, ys)],
+    changed: new Set(),
+    caption: "Press <b>Next line</b> (or &rarr;) to run the program one line at a time.",
+    done: false, diverged: false, ran: null,
+  };
+}
+
+function mse(w, b, xs, ys) {
+  let s = 0;
+  for (let i = 0; i < xs.length; i++) { const e = w * xs[i] + b - ys[i]; s += e * e; }
+  return s / xs.length;
+}
+
+function exactAnswer(xs, ys) {
+  const n = xs.length;
+  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (let i = 0; i < n; i++) { sx += xs[i]; sy += ys[i]; sxx += xs[i] * xs[i]; sxy += xs[i] * ys[i]; }
+  const w = (n * sxy - sx * sy) / (n * sxx - sx * sx);
+  return { w, b: (sy - w * sx) / n };
+}
+
+// Python-like number formatting, so inf and nan read as they would in the terminal.
+function f(v, d = 3) {
+  if (v === null || v === undefined) return "—";
+  if (Number.isNaN(v)) return "nan";
+  if (!Number.isFinite(v)) return v > 0 ? "inf" : "-inf";
+  if (v !== 0 && (Math.abs(v) >= 1e6 || Math.abs(v) < 1e-3)) return v.toExponential(2);
+  return v.toFixed(d);
+}
+const g = (v) => f(v, 3);
+const gp = (v) => (v !== null && v < 0 ? `(${g(v)})` : g(v));  // a factor in a product
+
+// ---- the interpreter: run one line ----------------------------------------------
+function stepLine() {
+  if (S.done) return;
+  S.changed = new Set();
+  const L = S.line;
+  S.ran = L;
+  const { xs, ys, n, lr } = S;
+  switch (L) {
+    case 1:
+      S.started = true;
+      S.caption = `The data: ${n} measurements. Each <b>x</b> comes with the <b>y</b> that was observed for it.`;
+      S.line = 2; break;
+    case 2:
+      S.caption = `The observed values <b>y</b>, one for each x.`;
+      S.line = 3; break;
+    case 3:
+      S.w = 0; S.b = 0; S.changed.add("w").add("b");
+      S.caption = `The line starts flat: slope <b>w</b> = 0 (no tilt) and bias <b>b</b> = 0 (no lift), so it predicts 0 for every x.`;
+      S.line = 4; break;
+    case 4:
+      S.changed.add("lr");
+      S.caption = `The learning rate <b>&eta; = ${lr}</b> decides how big each correction may be.`;
+      S.line = 5; break;
+    case 5:
+      if (S.epoch >= EPOCHS) {
+        S.done = true;
+        S.caption = `All ${EPOCHS} epochs are done: w = ${g(S.w)}, b = ${g(S.b)}, loss ${f(S.losses.at(-1), 4)}.`;
+        break;
+      }
+      S.changed.add("epoch");
+      S.caption = `Epoch ${S.epoch + 1} of ${EPOCHS}: one full pass through all ${n} points.`;
+      S.line = 6; break;
+    case 6:
+      S.dw = 0; S.db = 0; S.k = -1; S.changed.add("dw").add("db");
+      S.cw.fill(null); S.cb.fill(null);
+      S.x = S.y = S.pred = S.err = null;
+      S.caption = `Reset the two sums, <b>dw</b> and <b>db</b> (the counters for the tilt and the lift).`;
+      S.line = 7; break;
+    case 7:
+      if (S.k + 1 < n) {
+        S.k += 1; S.x = xs[S.k]; S.y = ys[S.k]; S.pred = S.err = null;
+        S.changed.add("x").add("y");
+        S.caption = `Visit point ${S.k + 1}: x = ${S.x}, y = ${S.y}.`;
+        S.line = 8;
+      } else {
+        S.lastCw = S.cw.slice(); S.lastCb = S.cb.slice();
+        S.caption = `All ${n} points have contributed. dw = ${g(S.dw)} and db = ${g(S.db)} are the two derivatives of the loss.`;
+        S.line = 12;
+      }
+      break;
+    case 8:
+      S.pred = S.w * S.x + S.b; S.changed.add("pred");
+      S.caption = `The prediction (the line's guess): <span class="math">pred = w&middot;x + b = ${gp(S.w)}&middot;${S.x} + ${gp(S.b)} = ${g(S.pred)}</span>`;
+      S.line = 9; break;
+    case 9:
+      S.err = S.pred - S.y; S.changed.add("err");
+      S.caption = `The error (the guess minus the truth): <span class="math">err = pred &minus; y = ${g(S.pred)} &minus; ${S.y} = ${g(S.err)}</span>. On the chart it is the vertical gap.`;
+      S.line = 10; break;
+    case 10: {
+      const c = 2 * S.err * S.x / n;
+      S.cw[S.k] = c; S.dw += c; S.changed.add("dw");
+      S.caption = `Its contribution to dL/dw (its vote on the tilt): <span class="math">2&middot;err&middot;x/n = 2&middot;${gp(S.err)}&middot;${S.x}/${n} = ${g(c)}</span>. Running sum dw = ${g(S.dw)}.`;
+      S.line = 11; break;
+    }
+    case 11: {
+      const c = 2 * S.err / n;
+      S.cb[S.k] = c; S.db += c; S.changed.add("db");
+      S.caption = `Its contribution to dL/db (its vote on the lift): <span class="math">2&middot;err/n = 2&middot;${gp(S.err)}/${n} = ${g(c)}</span>. Running sum db = ${g(S.db)}.`;
+      S.line = 7; break;
+    }
+    case 12: {
+      const old = S.w; S.w = S.w - lr * S.dw; S.changed.add("w");
+      S.caption = `Step against the error: <span class="math">w &larr; w &minus; &eta;&middot;dw = ${g(old)} &minus; ${lr}&middot;(${g(S.dw)}) = ${g(S.w)}</span>`;
+      S.line = 13; break;
+    }
+    case 13: {
+      const old = S.b; S.b = S.b - lr * S.db; S.changed.add("b");
+      S.epoch += 1;
+      const L2 = mse(S.w, S.b, xs, ys);
+      S.losses.push(L2);
+      S.caption = `<span class="math">b &larr; b &minus; &eta;&middot;db = ${g(old)} &minus; ${lr}&middot;(${g(S.db)}) = ${g(S.b)}</span>. The line tilts and lifts; the loss is now ${f(L2, 4)}.`;
+      if (!Number.isFinite(L2) || L2 > 1e12) {
+        S.diverged = true; S.done = true;
+        S.caption += ` The loss has passed 10<sup>12</sup> and grows every epoch: the steps diverge.`;
+      }
+      S.line = 5; break;
+    }
+  }
+}
+
+// Advance to the start of the next point (line 7 with a new k) or the end of the epoch.
+function stepPoint() {
+  if (S.done) return;
+  let guard = 0;
+  do { stepLine(); guard++; } while (!S.done && guard < 50 && S.ran !== 11 && S.line !== 12);
+}
+
+// Advance to the end of the current (or next) epoch.
+function stepEpoch() {
+  if (S.done) return;
+  const target = S.epoch + 1;
+  let guard = 0;
+  while (!S.done && S.epoch < target && guard < 200) { stepLine(); guard++; }
+}
+
+// Run whole epochs quickly (no per-line captions), used by "Run all epochs".
+function fastEpoch() {
+  const { xs, ys, n, lr } = S;
+  let dw = 0, db = 0;
+  const cw = [], cb = [];
+  for (let i = 0; i < n; i++) {
+    const e = S.w * xs[i] + S.b - ys[i];
+    cw.push(2 * e * xs[i] / n); cb.push(2 * e / n);
+    dw += cw[i]; db += cb[i];
+  }
+  S.dw = dw; S.db = db; S.lastCw = cw; S.lastCb = cb; S.cw = cw.slice(); S.cb = cb.slice();
+  S.w -= lr * dw; S.b -= lr * db; S.epoch += 1;
+  const L = mse(S.w, S.b, xs, ys);
+  S.losses.push(L);
+  S.x = S.y = S.pred = S.err = null; S.k = -1; S.line = 5; S.started = true;
+  S.ran = 13;
+  if (!Number.isFinite(L) || L > 1e12) { S.diverged = true; S.done = true; }
+  if (S.epoch >= EPOCHS) S.done = true;
+}
+
+// ---- drawing ------------------------------------------------------------------
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs = {}, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+// Size an SVG's coordinate system to its rendered size, so text stays at true pixel sizes.
+function fit(svg, minW, minH) {
+  const r = svg.getBoundingClientRect();
+  const W = Math.max(minW, Math.round(r.width)), H = Math.max(minH, Math.round(r.height));
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  return { W, H };
+}
+
+function drawChart() {
+  const svg = document.getElementById("chart");
+  svg.replaceChildren();
+  const { W, H } = fit(svg, 320, 220), m = { l: 40, r: 14, t: 10, b: 30 };
+  const xmax = S.n + 1, ymin = -1, ymax = 10;
+  const X = (x) => m.l + (x / xmax) * (W - m.l - m.r);
+  const Y = (y) => H - m.b - ((y - ymin) / (ymax - ymin)) * (H - m.t - m.b);
+  const defs = el("defs"); const cp = el("clipPath", { id: "plot" });
+  cp.append(el("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b }));
+  defs.append(cp); svg.append(defs);
+  // grid and axes
+  for (let x = 0; x <= xmax; x++) {
+    svg.append(el("line", { x1: X(x), x2: X(x), y1: Y(ymin), y2: Y(ymax), stroke: css("--grid") }));
+    svg.append(el("text", { x: X(x), y: H - m.b + 17, "text-anchor": "middle", "font-size": 13, fill: css("--muted") }, x));
+  }
+  for (let y = 0; y <= ymax; y += 2) {
+    svg.append(el("line", { x1: X(0), x2: X(xmax), y1: Y(y), y2: Y(y), stroke: css("--grid") }));
+    svg.append(el("text", { x: m.l - 8, y: Y(y) + 4, "text-anchor": "end", "font-size": 13, fill: css("--muted") }, y));
+  }
+  svg.append(el("line", { x1: X(0), x2: X(xmax), y1: Y(0), y2: Y(0), stroke: css("--rule"), "stroke-width": 1.2 }));
+  svg.append(el("text", { x: W - m.r, y: H - 4, "text-anchor": "end", "font-size": 13, fill: css("--muted") }, "x"));
+  svg.append(el("text", { x: 8, y: m.t + 10, "font-size": 13, fill: css("--muted") }, "y"));
+  const clip = el("g", { "clip-path": "url(#plot)" }); svg.append(clip);
+  // exact answer
+  if (showExact) {
+    const ex = exactAnswer(S.xs, S.ys);
+    clip.append(el("line", { x1: X(0), y1: Y(ex.b), x2: X(xmax), y2: Y(ex.w * xmax + ex.b),
+      stroke: css("--exact"), "stroke-width": 2, "stroke-dasharray": "7 6" }));
+  }
+  // error segments: during an epoch, the visited points; otherwise all points, faint
+  const inEpoch = S.line >= 8 && S.line <= 11 || (S.line === 7 && S.k >= 0);
+  for (let i = 0; i < S.n; i++) {
+    const yh = S.w * S.xs[i] + S.b;
+    const visited = inEpoch ? (i < S.k || (i === S.k && S.err !== null)) : S.started;
+    if (!visited || !Number.isFinite(yh)) continue;
+    const cur = inEpoch && i === S.k;
+    clip.append(el("line", { x1: X(S.xs[i]), x2: X(S.xs[i]), y1: Y(S.ys[i]), y2: Y(yh),
+      stroke: css("--err"), "stroke-width": cur ? 4 : 2.2, opacity: inEpoch ? (cur ? 1 : 0.75) : 0.55 }));
+  }
+  // the line
+  if (Number.isFinite(S.w) && Number.isFinite(S.b)) {
+    clip.append(el("line", { x1: X(0), y1: Y(S.b), x2: X(xmax), y2: Y(S.w * xmax + S.b),
+      stroke: css("--line"), "stroke-width": 3.2 }));
+  }
+  // points
+  for (let i = 0; i < S.n; i++) {
+    const cur = inEpoch && i === S.k;
+    if (cur) svg.append(el("circle", { cx: X(S.xs[i]), cy: Y(S.ys[i]), r: 12, fill: "none", stroke: css("--err"), "stroke-width": 2.5 }));
+    svg.append(el("circle", { cx: X(S.xs[i]), cy: Y(S.ys[i]), r: 6, fill: css("--ink") }));
+  }
+  // prediction marker on the line for the current point
+  if (inEpoch && S.pred !== null && Number.isFinite(S.pred)) {
+    clip.append(el("circle", { cx: X(S.x), cy: Y(S.pred), r: 6, fill: css("--bg"), stroke: css("--line"), "stroke-width": 2.5 }));
+  }
+  // readout
+  const t = `w = ${g(S.w)}  ·  b = ${g(S.b)}  ·  epoch ${S.epoch} / ${EPOCHS}`;
+  svg.append(el("text", { x: m.l + 10, y: m.t + 20, "font-size": 16, fill: css("--ink"), "xml:space": "preserve",
+    "font-family": "ui-monospace, Menlo, Consolas, monospace" }, t));
+  if (S.diverged) {
+    svg.append(el("text", { x: m.l + 10, y: m.t + 44, "font-size": 17, fill: css("--err") },
+      "diverged: the line has left the chart"));
+  }
+}
+
+function drawBars(id, vals, sum, color, scaleVals) {
+  const svg = document.getElementById(id);
+  svg.replaceChildren();
+  const { W, H } = fit(svg, 200, 70), m = { l: 6, r: 6, t: 20, b: 16 };
+  const ref = (scaleVals || vals).filter((v) => v !== null && Number.isFinite(v));
+  const pos = Math.max(0, ...ref), neg = Math.max(0, ...ref.map((v) => -v));
+  const span = pos + neg || 1, plotH = H - m.t - m.b;
+  const zero = m.t + (pos / span) * plotH, k = plotH / span;
+  const n = vals.length, bw = (W - m.l - m.r) / n;
+  svg.append(el("line", { x1: m.l, x2: W - m.r, y1: zero, y2: zero, stroke: css("--rule") }));
+  vals.forEach((v, i) => {
+    const x = m.l + i * bw + bw * 0.2;
+    svg.append(el("text", { x: x + bw * 0.3, y: H - 3, "text-anchor": "middle", "font-size": 11, fill: css("--muted") }, i + 1));
+    if (v === null || !Number.isFinite(v)) return;
+    const h = Math.min(plotH, Math.abs(v) * k);
+    svg.append(el("rect", { x, width: bw * 0.6, y: v < 0 ? zero : zero - h, height: Math.max(1, h), fill: color, rx: 2 }));
+  });
+  svg.append(el("text", { x: W - m.r, y: 13, "text-anchor": "end", "font-size": 13, fill: css("--ink"),
+    "font-family": "ui-monospace, Menlo, Consolas, monospace" }, `sum = ${sum === null ? "—" : g(sum)}`));
+}
+
+function drawLoss() {
+  const svg = document.getElementById("lossChart");
+  svg.replaceChildren();
+  const { W, H } = fit(svg, 160, 60), m = { l: 34, r: 6, t: 4, b: 16 };
+  const Ls = S.losses.filter((v) => Number.isFinite(v) && v > 0);
+  const lo = Math.min(...Ls, 0.05), hi = Math.max(...Ls, 40);
+  const lx = (e) => m.l + (e / EPOCHS) * (W - m.l - m.r);
+  const ly = (v) => H - m.b - ((Math.log10(v) - Math.log10(lo)) / (Math.log10(hi) - Math.log10(lo))) * (H - m.t - m.b);
+  for (let p = Math.ceil(Math.log10(lo)); p <= Math.floor(Math.log10(hi)); p++) {
+    svg.append(el("line", { x1: m.l, x2: W - m.r, y1: ly(10 ** p), y2: ly(10 ** p), stroke: css("--grid") }));
+    svg.append(el("text", { x: m.l - 4, y: ly(10 ** p) + 4, "text-anchor": "end", "font-size": 11, fill: css("--muted") },
+      p >= -2 && p <= 3 ? String(10 ** p) : `1e${p}`));
+  }
+  [0, 500, 1000].forEach((e) => svg.append(el("text", { x: lx(e), y: H - 3, "text-anchor": e ? (e === 1000 ? "end" : "middle") : "start", "font-size": 11, fill: css("--muted") }, e)));
+  const ex = exactAnswer(S.xs, S.ys), Lstar = mse(ex.w, ex.b, S.xs, S.ys);
+  svg.append(el("line", { x1: m.l, x2: W - m.r, y1: ly(Lstar), y2: ly(Lstar), stroke: css("--exact"), "stroke-dasharray": "5 5" }));
+  let d = "";
+  S.losses.forEach((v, e) => { if (Number.isFinite(v) && v > 0) d += (d ? "L" : "M") + lx(e).toFixed(1) + "," + ly(Math.min(v, hi)).toFixed(1); });
+  if (d) svg.append(el("path", { d, fill: "none", stroke: css("--line"), "stroke-width": 2.2 }));
+  const last = S.losses.at(-1);
+  svg.append(el("text", { x: W - m.r, y: 13, "text-anchor": "end", "font-size": 12, fill: css("--ink"),
+    "font-family": "ui-monospace, Menlo, Consolas, monospace" }, `now ${f(last, 4)}`));
+  svg.append(el("text", { x: W - m.r, y: 27, "text-anchor": "end", "font-size": 12, fill: css("--exact"),
+    "font-family": "ui-monospace, Menlo, Consolas, monospace" }, `exact ${f(Lstar, 4)}`));
+}
+
+function drawCode() {
+  const box = document.getElementById("code");
+  box.replaceChildren();
+  const xsTxt = "[" + S.xs.join(", ") + "]";
+  const ysTxt = "[" + S.ys.map((v) => v.toFixed(1)).join(", ") + "]";
+  CODE.forEach(([src, cmt], i) => {
+    const row = document.createElement("div");
+    row.className = "ln" + (i + 1 === S.ran ? " on" : "");
+    const no = document.createElement("span"); no.className = "no"; no.textContent = i + 1;
+    const tx = document.createElement("span");
+    tx.textContent = src.replace("{XS}", xsTxt).replace("{YS}", ysTxt).replace("{LR}", String(S.lr));
+    if (cmt) { const c = document.createElement("span"); c.className = "c"; c.textContent = "   " + cmt; tx.append(c); }
+    row.append(no, tx); box.append(row);
+  });
+}
+
+function drawVars() {
+  const rows = [
+    ["w", g(S.w)], ["b", g(S.b)], ["lr", String(S.lr)], ["epoch", `${S.epoch} / ${EPOCHS}`],
+    ["x", S.x === null ? "—" : S.x], ["y", S.y === null ? "—" : S.y],
+    ["pred", g(S.pred)], ["err", g(S.err)], ["dw", g(S.dw)], ["db", g(S.db)],
+  ];
+  const t = document.getElementById("vars");
+  t.replaceChildren();
+  for (const [k, v] of rows) {
+    const row = document.createElement("div");
+    row.className = "v" + (S.changed.has(k) ? " changed" : "");
+    const a = document.createElement("span"); a.className = "k"; a.textContent = k;
+    const b = document.createElement("span"); b.className = "val"; b.textContent = v;
+    row.append(a, b); t.append(row);
+  }
+}
+
+function render() {
+  drawChart();
+  const midEpoch = S.cw.some((v) => v !== null);
+  const cw = midEpoch ? S.cw : (S.lastCw || S.cw), cb = midEpoch ? S.cb : (S.lastCb || S.cb);
+  const sw = cw.some((v) => v !== null) ? cw.reduce((a, v) => a + (v || 0), 0) : null;
+  const sb = cb.some((v) => v !== null) ? cb.reduce((a, v) => a + (v || 0), 0) : null;
+  let fw = null, fb = null;
+  if (midEpoch) {
+    fw = S.xs.map((x, i) => 2 * (S.w * x + S.b - S.ys[i]) * x / S.n);
+    fb = S.xs.map((x, i) => 2 * (S.w * x + S.b - S.ys[i]) / S.n);
+  }
+  drawBars("barW", cw, sw, css("--err"), fw);
+  drawBars("barB", cb, sb, css("--line"), fb);
+  drawLoss();
+  drawCode();
+  drawVars();
+  document.getElementById("caption").innerHTML = S.caption;
+  document.getElementById("bPlay").firstChild.textContent = timer ? "Pause" : "Play";
+  document.getElementById("bRun").firstChild.textContent = running ? "Stop" : "Run all";
+}
+
+// Remember which line just ran, for the highlight.
+function act(fn) {
+  return () => { stopAll(); fn(); render(); };
+}
+
+function stopAll() {
+  if (timer) { clearInterval(timer); timer = null; }
+  running = false;
+}
+
+function play() {
+  if (timer) { stopAll(); render(); return; }
+  stopAll();
+  const speed = +document.getElementById("speed").value;
+  const ms = Math.round(1400 / speed);
+  timer = setInterval(() => {
+    if (S.done) { stopAll(); render(); return; }
+    stepLine(); render();
+  }, ms);
+  render();
+}
+
+function runAll() {
+  if (running) { stopAll(); render(); return; }
+  stopAll();
+  running = true;
+  // finish the epoch in progress line by line, then whole epochs
+  let guard = 0;
+  while (S.line !== 5 && !S.done && guard++ < 200) stepLine();
+  const tick = () => {
+    if (!running) return;
+    const per = S.epoch < 20 ? 1 : S.epoch < 100 ? 3 : 12;
+    for (let i = 0; i < per && !S.done; i++) fastEpoch();
+    S.caption = S.diverged
+      ? `Epoch ${S.epoch}: the loss is ${f(S.losses.at(-1), 4)} and grows every epoch. With &eta; = ${S.lr} each step overshoots further than the last; left to run, the numbers would overflow to inf and then nan.`
+      : `Epoch ${S.epoch}: w = ${g(S.w)}, b = ${g(S.b)}, loss ${f(S.losses.at(-1), 4)}. Each frame runs whole epochs.`;
+    render();
+    if (S.done) { running = false; render(); return; }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+function reset() { stopAll(); S = newState(); render(); }
+
+// ---- wiring -------------------------------------------------------------------
+document.getElementById("bLine").onclick = act(stepLine);
+document.getElementById("bPoint").onclick = act(stepPoint);
+document.getElementById("bEpoch").onclick = act(stepEpoch);
+document.getElementById("bPlay").onclick = play;
+document.getElementById("bRun").onclick = runAll;
+document.getElementById("bReset").onclick = reset;
+document.getElementById("data").onchange = reset;
+document.getElementById("lr").onchange = reset;
+document.getElementById("exact").onchange = (e) => { showExact = e.target.checked; render(); };
+document.getElementById("speed").oninput = () => { if (timer) { stopAll(); play(); } };
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+window.addEventListener("resize", () => render());
+
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
+  const k = e.key.toLowerCase();
+  if (e.key === "ArrowRight" || k === "n") { e.preventDefault(); act(stepLine)(); }
+  else if (k === "p") act(stepPoint)();
+  else if (k === "e") act(stepEpoch)();
+  else if (e.key === " ") { e.preventDefault(); play(); }
+  else if (k === "f") runAll();
+  else if (k === "r") reset();
+  else if (k === "x") { const c = document.getElementById("exact"); c.checked = !c.checked; showExact = c.checked; render(); }
+});
+
+reset();
+</script>
+</body>
+</html>

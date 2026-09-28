@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ML Foundations Demos</title>
+<meta name="description" content="Browser demos for ML Foundations (기계학습기초), Hongik University, 2026-2.">
+<style>
+:root {
+  --bg: #ffffff; --panel: #f4f5f7; --ink: #1a1a1a; --muted: #5b6068; --rule: #d9dce1;
+  --accent: #2f6fbf; --tag: #c00000;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+    --accent: #6ea8ff; --tag: #ff6b6b;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+  --accent: #6ea8ff; --tag: #ff6b6b;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 17px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+}
+.wrap { max-width: 760px; margin: 0 auto; padding: 40px 16px 32px; }
+h1 { font-size: 28px; margin: 0 0 4px; text-wrap: balance; }
+.sub { color: var(--muted); margin: 0 0 28px; }
+.demo {
+  display: block; text-decoration: none; color: inherit;
+  background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 16px 18px;
+}
+.demo:hover { border-color: var(--accent); }
+.demo:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.demo .wk { color: var(--tag); font-size: 13px; font-weight: 650; }
+.demo h2 { font-size: 20px; margin: 2px 0 6px; color: var(--accent); }
+.demo p { margin: 0; color: var(--ink); }
+.list { display: grid; gap: 12px; }
+footer { margin-top: 36px; padding-top: 14px; border-top: 1px solid var(--rule); font-size: 13.5px; color: var(--muted); }
+footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>ML Foundations demos</h1>
+  <p class="sub">기계학습기초 &middot; Hongik University &middot; 2026-2. Each demo runs in the browser; nothing is installed.</p>
+
+  <div class="list">
+    <a class="demo" href="week04-gradient-descent/">
+      <div class="wk">Week 4, Hour 1</div>
+      <h2>Linear regression by gradient descent, line by line</h2>
+      <p>Steps through the thirteen-line gradient-descent loop one line, one point or one epoch
+      at a time: each point's error, its contribution to the two derivatives, the update, and
+      the loss. Includes a learning rate that is too large, so that the loss diverges.</p>
+    </a>
+  </div>
+
+  <footer>
+    &copy; 2026 Kuk Jin Jang, Hongik University. Code and text are licensed under
+    <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>.
+    Commercial use, closed-source use or any other licensing is by permission:
+    <a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>.<br>
+    The Week 4 demo follows the short video &ldquo;Machine Learning From Scratch, Part 1&rdquo; by
+    <a href="https://www.tiktok.com/@machinelearningtogo">@machinelearningtogo</a> on TikTok:
+    its loop, the order of its steps and its eight data points.
+  </footer>
+</div>
+</body>
+</html>

@@ -8,6 +8,8 @@ Published with GitHub Pages at <https://hongik-aicourses.github.io/ml-demos/>.
 | Week | Demo | Page |
 |---|---|---|
 | 4, Hour 1 | Linear regression by gradient descent, line by line | [week04-gradient-descent/](https://hongik-aicourses.github.io/ml-demos/week04-gradient-descent/) |
+| 4, Hour 3 | Logistic regression by gradient descent, line by line | [week04-logistic-regression/](https://hongik-aicourses.github.io/ml-demos/week04-logistic-regression/) |
+| 4, self-study | Naive Bayes spam filter, clue by clue | [week04-naive-bayes/](https://hongik-aicourses.github.io/ml-demos/week04-naive-bayes/) |
 
 ## Where the files come from
 
@@ -17,10 +19,17 @@ rather than editing this repository directly.
 
 ## Credit
 
-The Week 4 demo follows the short video *Machine Learning From Scratch, Part 1* by
-[@machinelearningtogo](https://www.tiktok.com/@machinelearningtogo) on TikTok: the
-thirteen-line loop, the order in which its steps are shown, and its eight data points
-(x = 1, …, 8; y = 2.9, 3.4, 4.9, 4.7, 6.2, 6.9, 7.3, 8.6).
+- **Gradient descent (Week 4, Hour 1) and logistic regression (Hour 3):** these follow
+  the short video *Machine Learning From Scratch, Part 1* by
+  [@machinelearningtogo](https://www.tiktok.com/@machinelearningtogo) on TikTok: the
+  thirteen-line loop, the order in which its steps are shown, and its eight data points
+  (x = 1, …, 8; y = 2.9, 3.4, 4.9, 4.7, 6.2, 6.9, 7.3, 8.6). The logistic-regression page
+  reuses that stepper with its own labels.
+- **Naive Bayes (self-study):** this follows the short video *Naive Bayes* by
+  [@DataScienceFoundry](https://www.tiktok.com/@datasciencefoundry) on TikTok: its word
+  table, the prior of 25%, the example email and the order of the explanation. The page adds
+  the two words of the email the video leaves uncounted ("claim", "prize") and the log-odds
+  view.
 
 ## License
 
@@ -36,4 +45,4 @@ Everything in this repository — the code and the text alike — is licensed un
 - **commercial use** and **closed-source use** are not granted by the license. For
   either, or for any other licensing, ask: jangkj@hongik.ac.kr.
 
-The credited video and its author are not covered by this license.
+The credited videos and their authors are not covered by this license.

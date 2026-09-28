@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Naive Bayes Spam Filter</title>
+<meta name="description" content="Week 4 self-study demo: a naive Bayes spam filter, multiplying the evidence one word at a time, and the same calculation as a sum of log-odds.">
+<!--
+  (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
+  licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
+  Commercial use, closed-source use, or any other licensing: by permission,
+  jangkj@hongik.ac.kr.
+
+  Week 4 self-study demo --- a naive Bayes spam filter. The example (the word
+  table, the prior of 25%, the email, and the order of the explanation) follows the
+  short video "Naive Bayes" by @DataScienceFoundry on TikTok
+  (https://www.tiktok.com/@datasciencefoundry), credited on the page.
+
+  Two additions to the video:
+  - the email also contains "claim" and "prize", which are in the video's own
+    table but are not counted in the video; the page counts the video's three words
+    by default (80% spam, as in the video) and lets them be added (99.4% spam);
+  - the same calculation written as a sum of log-odds, whose sigmoid is the
+    posterior. That is the form of logistic regression (Week 4, Hour 3).
+
+  One self-contained file: no server, no network, no libraries.
+  Keys: Right arrow or N = next clue, A = all clues, R = reset,
+        V = the video's three words, W = every known word in the email.
+-->
+<style>
+:root {
+  --barw: 110px;
+  --bg: #ffffff; --panel: #f4f5f7; --ink: #1a1a1a; --muted: #5b6068; --rule: #d9dce1;
+  --spam: #c0392b; --spam-soft: #f6d8d4; --normal: #1e8e5a; --normal-soft: #d3efe1;
+  --accent: #2f6fbf; --hl: #fff1c2; --btn: #ffffff; --btn-edge: #b9bec6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+    --spam: #ff7a6b; --spam-soft: #4a2622; --normal: #4fcf8e; --normal-soft: #1d3a2c;
+    --accent: #6ea8ff; --hl: #3a3320; --btn: #1f252d; --btn-edge: #3a424d;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+  --spam: #ff7a6b; --spam-soft: #4a2622; --normal: #4fcf8e; --normal-soft: #1d3a2c;
+  --accent: #6ea8ff; --hl: #3a3320; --btn: #1f252d; --btn-edge: #3a424d;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 18px; padding: 10px 20px 6px; border-bottom: 1px solid var(--rule); }
+header h1 { font-size: 22px; margin: 0; font-weight: 650; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); font-size: 14px; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 20px; border-bottom: 1px solid var(--rule); background: var(--panel); }
+.controls label { font-size: 14px; color: var(--muted); }
+button { font: inherit; font-size: 15px; background: var(--btn); color: var(--ink); border: 1px solid var(--btn-edge); border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap; }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+button:focus-visible, input:focus-visible, textarea:focus-visible, tr:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.prior { display: flex; align-items: center; gap: 8px; }
+.prior output { font-variant-numeric: tabular-nums; min-width: 7.5em; font-size: 14px; }
+main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 12px; padding: 10px 20px 12px; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+@media (max-width: 600px) {
+  :root { --barw: 54px; }
+  header, .controls, main, footer { padding-left: 16px; padding-right: 16px; }
+  table.words td, table.words th { font-size: 13px; padding: 2px 2px; }
+  .ratio { font-size: 12px; }
+}
+.tablewrap { overflow-x: auto; }
+.col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 12px; }
+.card h2 { font-size: 13.5px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.email { font-size: 18px; line-height: 1.7; }
+.email .w { border-radius: 5px; padding: 1px 4px; }
+.email .w.spam { background: var(--spam-soft); color: var(--spam); font-weight: 650; }
+.email .w.normal { background: var(--normal-soft); color: var(--normal); font-weight: 650; }
+.email .w.skip { text-decoration: underline dotted var(--muted); text-underline-offset: 4px; }
+textarea { width: 100%; font: 14px system-ui, sans-serif; color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 5px 8px; resize: vertical; }
+.note { font-size: 13px; color: var(--muted); margin: 4px 0 0; }
+table.words { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+table.words th { font-size: 12.5px; color: var(--muted); font-weight: 600; text-align: left; padding: 2px 4px; }
+table.words td { padding: 2px 4px; font-size: 15px; vertical-align: middle; }
+table.words tr.row { cursor: pointer; }
+table.words tr.row:hover td { background: var(--bg); }
+table.words tr.on td { background: var(--hl); }
+table.words td.word { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.bar { display: flex; align-items: center; gap: 6px; }
+.bar i { display: block; height: 11px; border-radius: 3px; }
+.bar i.s { background: var(--spam); } .bar i.n { background: var(--normal); }
+.bar span { font-size: 13px; min-width: 2.6em; }
+.ratio { font-size: 13px; }
+.ratio.s { color: var(--spam); } .ratio.n { color: var(--normal); }
+.scores .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; font-variant-numeric: tabular-nums; }
+.tag { font-size: 13px; font-weight: 700; border-radius: 5px; padding: 3px 8px; min-width: 5.2em; text-align: center; }
+.tag.s { background: var(--spam-soft); color: var(--spam); } .tag.n { background: var(--normal-soft); color: var(--normal); }
+.chip { font: 15px ui-monospace, "SF Mono", Menlo, Consolas, monospace; border: 1px solid var(--rule); background: var(--bg); border-radius: 5px; padding: 2px 6px; }
+.chip.prior { border-color: var(--accent); }
+.chip.new { background: var(--hl); }
+.chip small { color: var(--muted); font-size: 11px; margin-left: 3px; }
+.times { color: var(--muted); }
+.result { font: 16px ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-weight: 700; margin-left: 4px; }
+.post { font-size: 16px; }
+.post .math { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 15px; }
+.split { display: flex; height: 26px; border-radius: 6px; overflow: hidden; margin: 8px 0 2px; font-size: 13px; font-weight: 700; }
+.split div { display: flex; align-items: center; justify-content: center; color: #fff; min-width: 0; white-space: nowrap; overflow: hidden; }
+.split .s { background: var(--spam); } .split .n { background: var(--normal); }
+.verdict { font-size: 15px; }
+svg { display: block; width: 100%; }
+.caption { font-size: 16px; padding: 8px 12px; background: var(--bg); border: 1px solid var(--rule); border-left: 4px solid var(--accent); border-radius: 8px; min-height: 2.9em; }
+footer { padding: 4px 20px 6px; border-top: 1px solid var(--rule); background: var(--panel); font-size: 12.5px; color: var(--muted); }
+footer a { color: var(--accent); }
+/* screen-size overrides: last, so they win over the base rules */
+@media (min-width: 901px) and (max-height: 820px) {
+  header { padding: 6px 20px 4px; } header h1 { font-size: 19px; }
+  .controls { padding: 5px 20px; } main { gap: 8px; padding: 6px 16px 8px; }
+  .col { gap: 7px; } .card { padding: 5px 10px; } .card h2 { font-size: 12px; margin-bottom: 3px; }
+  .email { font-size: 16px; line-height: 1.55; } table.words td { font-size: 14px; padding: 1px 4px; }
+  .caption { font-size: 14.5px; padding: 5px 10px; } footer { font-size: 11.5px; padding: 3px 16px 4px; }
+  .chip { font-size: 14px; } .note { font-size: 12px; }
+}
+@media (min-width: 1800px) and (min-height: 1000px) {
+  body { font-size: 18px; } header h1 { font-size: 26px; } button { font-size: 17px; }
+  .email { font-size: 21px; } table.words td { font-size: 17px; } .chip { font-size: 17px; }
+  .caption, .post { font-size: 19px; } .card h2 { font-size: 15px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Naive Bayes spam filter, clue by clue</h1>
+  <p>Week 4 &middot; self-study &middot; multiply the evidence, then compare the two classes</p>
+</header>
+
+<div class="controls" role="toolbar" aria-label="Demo controls">
+  <div class="prior">
+    <label for="prior">Prior: spam</label>
+    <input id="prior" type="range" min="5" max="95" step="5" value="25" aria-label="Prior probability of spam, in percent">
+    <output id="priorOut">25% spam, 75% normal</output>
+  </div>
+  <button id="bNext" class="primary">Next clue</button>
+  <button id="bAll">All clues</button>
+  <button id="bReset">Reset</button>
+  <button id="bVideo">The video's three words</button>
+  <button id="bEvery">Every known word in the email</button>
+</div>
+
+<main>
+  <section class="col">
+    <div class="card">
+      <h2>Incoming email</h2>
+      <div class="email" id="email" aria-live="polite"></div>
+      <textarea id="text" rows="2" aria-label="Edit the email">You are a winner! Claim your free prize before our meeting.</textarea>
+      <p class="note" id="skipNote"></p>
+    </div>
+    <div class="card">
+      <h2>What training counted: the share of emails of each kind that contain the word (click a row to count it)</h2>
+      <div class="tablewrap"><table class="words" id="words"></table></div>
+    </div>
+  </section>
+
+  <section class="col">
+    <div class="card scores">
+      <h2>Each class: the prior, times each clue's probability</h2>
+      <div class="row" id="rowS"></div>
+      <div class="row" id="rowN"></div>
+      <p class="note" id="ratioNote"></p>
+    </div>
+    <div class="card post">
+      <h2>From two scores to one probability</h2>
+      <div id="post"></div>
+      <div class="split" id="split"></div>
+      <div class="verdict" id="verdict"></div>
+    </div>
+    <div class="card">
+      <h2>The same calculation as a sum: each clue adds its vote to the log-odds</h2>
+      <svg id="logodds" role="img" aria-label="Each clue's contribution to the log-odds"></svg>
+      <p class="note" id="logNote"></p>
+    </div>
+    <div class="caption" id="caption" aria-live="polite"></div>
+  </section>
+</main>
+
+<footer>
+  &copy; 2026 Kuk Jin Jang, Hongik University &middot;
+  <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>; commercial or
+  closed-source use by permission (<a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>) &middot;
+  the example &mdash; the word table, the prior, the email and the order of the explanation &mdash;
+  follows the short video &ldquo;Naive Bayes&rdquo; by
+  <a href="https://www.tiktok.com/@datasciencefoundry">@DataScienceFoundry</a> on TikTok
+</footer>
+
+<script>
+"use strict";
+// The video's training counts: the share of spam and of normal emails containing each word.
+const WORDS = [
+  ["free", 0.60, 0.10], ["hello", 0.46, 0.48], ["winner", 0.40, 0.02], ["prize", 0.35, 0.04],
+  ["claim", 0.28, 0.06], ["urgent", 0.22, 0.03], ["invoice", 0.08, 0.30], ["meeting", 0.05, 0.50],
+  ["report", 0.04, 0.38], ["lunch", 0.03, 0.22],
+];
+const TABLE = Object.fromEntries(WORDS.map(([w, s, n]) => [w, { s, n }]));
+const VIDEO = ["free", "winner", "meeting"];
+
+let chosen = new Set(VIDEO);   // the words counted as clues
+let shown = 0;                 // how many clues have been multiplied in so far
+
+const prior = () => +document.getElementById("prior").value / 100;
+const order = () => WORDS.map(([w]) => w).filter((w) => chosen.has(w));   // table order, as in the video
+const tokens = (t) => (t.toLowerCase().match(/[a-z]+/g) || []);
+// plain decimals down to a millionth (0.00075, as in the video), powers of ten below that
+const fx = (v) => (v >= 0.001 ? (+v.toPrecision(3)).toString()
+  : v >= 1e-6 ? (+v.toPrecision(3)).toFixed(9).replace(/0+$/, "") : v.toExponential(2));
+const fp = (P) => (P > 0.001 && P < 0.999 ? P.toFixed(3) : fx(P));
+const pct = (v) => (v * 100 >= 99.95 || v * 100 < 0.05 ? (v * 100).toFixed(2) : (v * 100).toFixed(1)) + "%";
+
+function scores(k) {
+  let S = prior(), N = 1 - prior();
+  for (const w of order().slice(0, k)) { S *= TABLE[w].s; N *= TABLE[w].n; }
+  return { S, N };
+}
+
+function renderEmail() {
+  const text = document.getElementById("text").value;
+  const known = new Set(tokens(text).filter((w) => w in TABLE));
+  const out = text.replace(/[A-Za-z]+/g, (m) => {
+    const w = m.toLowerCase();
+    if (!(w in TABLE)) return m;
+    if (chosen.has(w)) return `<span class="w ${TABLE[w].s > TABLE[w].n ? "spam" : "normal"}">${m}</span>`;
+    return `<span class="w skip" title="in the table, not counted">${m}</span>`;
+  });
+  document.getElementById("email").innerHTML = out;
+  const skipped = [...known].filter((w) => !chosen.has(w));
+  const extra = [...chosen].filter((w) => !known.has(w));
+  let note = "";
+  if (skipped.length) note += `Underlined: ${skipped.join(", ")} ${skipped.length > 1 ? "are" : "is"} in the table but not counted` +
+    (VIDEO.every((w) => chosen.has(w)) && chosen.size === 3 ? " &mdash; the video counts only winner, free and meeting. Click the rows, or press <b>Every known word</b>, to count them too." : ". Click the row to count it.");
+  if (extra.length) note += (note ? " " : "") + `Counted but not in the email: ${extra.join(", ")}.`;
+  document.getElementById("skipNote").innerHTML = note;
+}
+
+function renderTable() {
+  const t = document.getElementById("words");
+  t.innerHTML = "<tr><th></th><th>word</th><th>in spam</th><th>in normal</th><th>points to</th></tr>";
+  for (const [w, s, n] of WORDS) {
+    const r = s / n, on = chosen.has(w);
+    const tr = document.createElement("tr");
+    tr.className = "row" + (on ? " on" : ""); tr.tabIndex = 0;
+    tr.setAttribute("aria-pressed", on ? "true" : "false");
+    tr.innerHTML = `<td>${on ? "&#10003;" : ""}</td><td class="word">${w}</td>` +
+      `<td><div class="bar"><i class="s" style="width:calc(${s} * var(--barw))"></i><span>${Math.round(s * 100)}%</span></div></td>` +
+      `<td><div class="bar"><i class="n" style="width:calc(${n} * var(--barw))"></i><span>${Math.round(n * 100)}%</span></div></td>` +
+      `<td class="ratio ${r > 1 ? "s" : "n"}">${r > 1 ? `spam, ${fx(r)}&times;` : `normal, ${fx(1 / r)}&times;`}</td>`;
+    const toggle = () => { on ? chosen.delete(w) : chosen.add(w); shown = order().length; update(); };
+    tr.onclick = toggle;
+    tr.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } };
+    t.append(tr);
+  }
+}
+
+function renderScores() {
+  const ws = order(), k = Math.min(shown, ws.length);
+  const row = (cls, label, p0, key) => {
+    let h = `<span class="tag ${cls}">${label}</span><span class="chip prior">${fx(p0)}<small>prior</small></span>`;
+    ws.slice(0, k).forEach((w, i) => {
+      h += `<span class="times">&times;</span><span class="chip${i === k - 1 ? " new" : ""}">${fx(TABLE[w][key])}<small>${w}</small></span>`;
+    });
+    const { S, N } = scores(k);
+    return h + `<span class="times">=</span><span class="result">${fx(key === "s" ? S : N)}</span>`;
+  };
+  document.getElementById("rowS").innerHTML = row("s", "SPAM", prior(), "s");
+  document.getElementById("rowN").innerHTML = row("n", "NORMAL", 1 - prior(), "n");
+  const { S, N } = scores(k);
+  document.getElementById("ratioNote").innerHTML = k < ws.length
+    ? `${k} of ${ws.length} clues multiplied in. Press <b>Next clue</b>.`
+    : `The spam score is ${fx(S / N)} times the normal score.`;
+}
+
+function renderPost() {
+  const { S, N } = scores(Math.min(shown, order().length)), P = S / (S + N);
+  document.getElementById("post").innerHTML =
+    `P(spam | these clues) = <span class="math">S / (S + N) = ${fx(S)} / (${fx(S)} + ${fx(N)}) = ${fp(P)}</span>`;
+  document.getElementById("split").innerHTML =
+    `<div class="s" style="width:${P * 100}%">${P > 0.12 ? pct(P) + " spam" : ""}</div>` +
+    `<div class="n" style="width:${(1 - P) * 100}%">${1 - P > 0.12 ? pct(1 - P) + " normal" : ""}</div>`;
+  document.getElementById("verdict").innerHTML = P > 0.5
+    ? `The filter marks the email as <b style="color:var(--spam)">spam</b>: the spam score is the larger of the two.`
+    : `The filter marks the email as <b style="color:var(--normal)">normal</b>: the normal score is the larger of the two.`;
+}
+
+function renderLogOdds() {
+  const svg = document.getElementById("logodds"); svg.replaceChildren();
+  const ws = order().slice(0, Math.min(shown, order().length));
+  const items = [["prior", Math.log(prior() / (1 - prior()))], ...ws.map((w) => [w, Math.log(TABLE[w].s / TABLE[w].n)])];
+  const total = items.reduce((a, [, v]) => a + v, 0);
+  items.push(["sum", total]);
+  const W = Math.max(280, Math.round(svg.getBoundingClientRect().width)), rowH = 20, H = items.length * rowH + 8;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.style.height = H + "px";
+  const lab = 64, val = 150, mid = lab + (W - lab - val) / 2, scale = (W - lab - val) / 2 / Math.max(3.5, ...items.map(([, v]) => Math.abs(v)));
+  const cs = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const NS = "http://www.w3.org/2000/svg", mk = (t, a, txt) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); if (txt !== undefined) e.textContent = txt; svg.append(e); };
+  mk("line", { x1: mid, x2: mid, y1: 2, y2: H - 4, stroke: cs("--rule") });
+  items.forEach(([name, v], i) => {
+    const y = 4 + i * rowH, sum = name === "sum";
+    if (sum) mk("line", { x1: lab, x2: W - val + 10, y1: y - 1, y2: y - 1, stroke: cs("--muted") });
+    mk("text", { x: lab - 6, y: y + 13, "text-anchor": "end", "font-size": 13, fill: sum ? cs("--ink") : cs("--muted"),
+      "font-weight": sum ? 700 : 400, "font-family": "ui-monospace, Menlo, Consolas, monospace" }, name);
+    const w = Math.abs(v) * scale;
+    mk("rect", { x: v >= 0 ? mid : mid - w, y: y + 3, width: Math.max(1, w), height: rowH - 7, rx: 2,
+      fill: v >= 0 ? cs("--spam") : cs("--normal"), opacity: sum ? 1 : 0.85 });
+    mk("text", { x: W - val + 16, y: y + 13, "font-size": 13, fill: cs("--ink"), "font-weight": sum ? 700 : 400,
+      "font-family": "ui-monospace, Menlo, Consolas, monospace" }, (v >= 0 ? "+" : "") + v.toFixed(3));
+  });
+  const P = 1 / (1 + Math.exp(-total));
+  document.getElementById("logNote").innerHTML =
+    `log(S/N) = ${total.toFixed(3)}, and &sigma;(${total.toFixed(3)}) = 1/(1 + e<sup>&minus;${total.toFixed(3)}</sup>) = ${P.toFixed(3)}, the same probability as above. ` +
+    `Each clue adds a fixed amount, log(spam share / normal share): its vote. Logistic regression keeps this form, the sigmoid of a sum, but <b>learns</b> the votes instead of counting them.`;
+}
+
+function caption() {
+  const ws = order(), k = Math.min(shown, ws.length);
+  let c;
+  if (!ws.length) c = "No clue is counted, so each class keeps its prior. Click a word in the table, or press <b>The video's three words</b>.";
+  else if (k === 0) c = `Each class starts from its prior: ${pct(prior())} of emails are spam and ${pct(1 - prior())} are normal. Press <b>Next clue</b> to multiply in the first word.`;
+  else if (k < ws.length) {
+    const w = ws[k - 1];
+    c = `Clue ${k}, <b>${w}</b>: it appears in ${Math.round(TABLE[w].s * 100)}% of spam and ${Math.round(TABLE[w].n * 100)}% of normal emails, so it multiplies the spam score by ${TABLE[w].s} and the normal score by ${TABLE[w].n}.`;
+  } else {
+    const { S, N } = scores(k);
+    c = `All ${ws.length} clues are in. The <b>naive</b> part: the probabilities are simply multiplied, as if every word were an independent clue, ignoring word order and how words relate. ` +
+        `The two scores are not probabilities by themselves; dividing by their sum makes them add to 1: P(spam) = ${pct(S / (S + N))}.`;
+  }
+  document.getElementById("caption").innerHTML = c;
+}
+
+function update() {
+  document.getElementById("priorOut").textContent = `${Math.round(prior() * 100)}% spam, ${Math.round((1 - prior()) * 100)}% normal`;
+  renderEmail(); renderTable(); renderScores(); renderPost(); renderLogOdds(); caption();
+}
+
+const next = () => { shown = Math.min(shown + 1, order().length); update(); };
+const all = () => { shown = order().length; update(); };
+const reset = () => { chosen = new Set(VIDEO); shown = 0; document.getElementById("prior").value = 25; update(); };
+const video = () => { chosen = new Set(VIDEO); shown = order().length; update(); };
+const every = () => { chosen = new Set(tokens(document.getElementById("text").value).filter((w) => w in TABLE)); shown = order().length; update(); };
+
+document.getElementById("bNext").onclick = next;
+document.getElementById("bAll").onclick = all;
+document.getElementById("bReset").onclick = reset;
+document.getElementById("bVideo").onclick = video;
+document.getElementById("bEvery").onclick = every;
+document.getElementById("prior").oninput = update;
+document.getElementById("text").oninput = update;
+window.addEventListener("resize", update);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", update);
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT" || e.target.tagName === "TR") return;
+  const k = e.key.toLowerCase();
+  if (e.key === "ArrowRight" || k === "n") { e.preventDefault(); next(); }
+  else if (k === "a") all(); else if (k === "r") reset(); else if (k === "v") video(); else if (k === "w") every();
+});
+reset();
+</script>
+</body>
+</html>

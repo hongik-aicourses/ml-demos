@@ -55,6 +55,20 @@ footer a { color: var(--accent); }
       at a time: each point's error, its contribution to the two derivatives, the update, and
       the loss. Includes a learning rate that is too large, so that the loss diverges.</p>
     </a>
+    <a class="demo" href="week04-logistic-regression/">
+      <div class="wk">Week 4, Hour 3</div>
+      <h2>Logistic regression by gradient descent, line by line</h2>
+      <p>The same loop with the prediction passed through the sigmoid: the probability curve,
+      the decision boundary moving as it trains, and why this loss has no formula for its
+      minimum.</p>
+    </a>
+    <a class="demo" href="week04-naive-bayes/">
+      <div class="wk">Week 4, self-study</div>
+      <h2>Naive Bayes spam filter, clue by clue</h2>
+      <p>Multiply the prior by each word's probability for spam and for normal mail, compare the
+      two scores, and see the same calculation as a sum of log-odds, the form logistic regression
+      learns.</p>
+    </a>
   </div>
 
   <footer>
@@ -62,9 +76,12 @@ footer a { color: var(--accent); }
     <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>.
     Commercial use, closed-source use or any other licensing is by permission:
     <a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>.<br>
-    The Week 4 demo follows the short video &ldquo;Machine Learning From Scratch, Part 1&rdquo; by
+    The gradient-descent demos follow the short video &ldquo;Machine Learning From Scratch, Part 1&rdquo; by
     <a href="https://www.tiktok.com/@machinelearningtogo">@machinelearningtogo</a> on TikTok:
     its loop, the order of its steps and its eight data points.
+    The naive Bayes demo follows the short video &ldquo;Naive Bayes&rdquo; by
+    <a href="https://www.tiktok.com/@datasciencefoundry">@DataScienceFoundry</a> on TikTok:
+    its word table, prior, email and order of explanation.
   </footer>
 </div>
 </body>

@@ -3,30 +3,26 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gradient Descent, Line by Line</title>
-<meta name="description" content="Week 4 demo: linear regression fitted by gradient descent, stepping through the Python loop one line at a time.">
+<title>Logistic Regression, Line by Line</title>
+<meta name="description" content="Week 4 demo: logistic regression trained by gradient descent, stepping through the Python loop one line at a time.">
 <!--
   (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
   licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
   Commercial use, closed-source use, or any other licensing: by permission,
-  jangkj@hongik.ac.kr. The loop, the order of the steps and the eight data points follow
-  the short video "Machine Learning From Scratch, Part 1" by @machinelearningtogo
-  (https://www.tiktok.com/@machinelearningtogo), credited on the page.
+  jangkj@hongik.ac.kr.
 
-  Week 4, Hour 1 demo --- linear regression fitted by gradient descent.
-  One self-contained file: no server, no network, no libraries. Open it directly
-  in a browser (double-click), or serve it from any static host.
+  Week 4, Hour 3 demo --- logistic regression trained by gradient descent.
+  The companion of week04_gd_demo.html: the same loop, with the prediction passed
+  through the sigmoid (line 9) and the cross-entropy's gradient (lines 11-12, no
+  factor 2). One self-contained file: no server, no network, no libraries.
 
-  It steps through the same thirteen-line loop as the slides
-  (inc-week04-gd-part1.tex) and the short video "Machine Learning From Scratch,
-  Part 1" (@machinelearningtogo), whose eight measurements it uses. The five-point
-  data set is the first five of those. With 8 points and eta = 0.01 the numbers
-  match the slides: loss 34.92 at the start, w = 0.589, b = 0.112 after one epoch,
-  w = 0.802, b = 1.995 after 1000.
+  Data: x = 1..8 with labels 0,0,0,1,0,1,1,1 (the best boundary is x = 4.5), or a
+  perfectly separable set, for which the loss has no minimum and w grows forever.
+  The minimum has no formula; the page finds it with Newton's method, for the
+  dashed reference curve.
 
   Keys: Right arrow or N = next line, P = next point, E = next epoch,
-        Space = play / pause line by line, F = run all epochs, R = reset,
-        X = show / hide the exact answer.
+        Space = play / pause, F = run all epochs, R = reset, X = show the minimum.
 -->
 <style>
 :root {
@@ -153,6 +149,7 @@ svg { display: block; width: 100%; }
 .code .ln { display: grid; grid-template-columns: 2.4em 1fr; padding: 0 10px 0 0; white-space: pre; }
 .code .ln .no { color: var(--muted); text-align: right; padding-right: 12px; user-select: none; }
 .code .ln.on { background: var(--hl); color: var(--hl-ink); }
+.code .ln.diff { box-shadow: inset 4px 0 0 var(--err); }
 .code .ln.on .no { color: var(--hl-ink); font-weight: 700; }
 .code .c { color: var(--comment); }
 .vars { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; font-variant-numeric: tabular-nums; }
@@ -176,7 +173,7 @@ footer a { color: var(--line); }
   .left, .right { gap: 7px; }
   .card { padding: 5px 8px; }
   .card h2 { font-size: 12px; margin-bottom: 3px; }
-  .code { font-size: 13.5px; line-height: 1.38; padding: 3px 0; }
+  .code { font-size: 13.5px; line-height: 1.3; padding: 2px 0; }
   .vars .v { font-size: 14px; padding: 1px 4px; }
   .caption { font-size: 16px; min-height: 2.9em; padding: 6px 12px; }
   .caption .math { font-size: 14px; }
@@ -200,25 +197,24 @@ footer a { color: var(--line); }
 </head>
 <body>
 <header>
-  <h1>Linear regression by gradient descent, line by line</h1>
-  <p>Week 4, Hour 1 &middot; the loop from the slides, run on the data of the video</p>
+  <h1>Logistic regression by gradient descent, line by line</h1>
+  <p>Week 4, Hour 3 &middot; the loop of Hour 1, with the prediction passed through the sigmoid (marked lines changed)</p>
 </header>
 
 <div class="controls" role="toolbar" aria-label="Demo controls">
   <div class="group">
     <label for="data">Data</label>
     <select id="data">
-      <option value="8" selected>8 points (video)</option>
-      <option value="5">5 points</option>
+      <option value="overlap" selected>8 points</option>
+      <option value="separable">8 points, separable</option>
     </select>
   </div>
   <div class="group">
     <label for="lr">&eta;</label>
     <select id="lr">
-      <option value="0.001">0.001</option>
-      <option value="0.01" selected>0.01 (video)</option>
-      <option value="0.03">0.03</option>
-      <option value="0.04">0.04</option>
+      <option value="0.05">0.05</option>
+      <option value="0.3" selected>0.3</option>
+      <option value="1">1.0</option>
     </select>
   </div>
   <span class="sep" aria-hidden="true"></span>
@@ -237,26 +233,26 @@ footer a { color: var(--line); }
     <button id="bReset">Reset<kbd>R</kbd></button>
   </div>
   <div class="group">
-    <label><input id="exact" type="checkbox"> exact answer<kbd>X</kbd></label>
+    <label><input id="exact" type="checkbox"> minimum<kbd>X</kbd></label>
   </div>
 </div>
 
 <main>
   <section class="left">
     <div class="card grow">
-      <svg id="chart" role="img" aria-label="The data, the current line and the errors"></svg>
+      <svg id="chart" role="img" aria-label="The data, the current sigmoid curve and the errors"></svg>
     </div>
     <div class="caption" id="caption" aria-live="polite"></div>
     <div class="bars">
-      <div class="card"><h2>Votes on the tilt: dL/dw</h2><svg id="barW"></svg></div>
-      <div class="card"><h2>Votes on the lift: dL/db</h2><svg id="barB"></svg></div>
-      <div class="card"><h2>Loss by epoch (log scale)</h2><svg id="lossChart"></svg></div>
+      <div class="card"><h2>Votes on w: dL/dw</h2><svg id="barW"></svg></div>
+      <div class="card"><h2>Votes on b: dL/db</h2><svg id="barB"></svg></div>
+      <div class="card"><h2>Loss by epoch (cross-entropy)</h2><svg id="lossChart"></svg></div>
     </div>
   </section>
 
   <section class="right">
     <div class="card grow">
-      <h2>linear_regression.py</h2>
+      <h2>logistic_regression.py &nbsp;<span style="font-weight:400">(red edge: differs from linear_regression.py)</span></h2>
       <div class="code" id="code"></div>
     </div>
     <div class="card">
@@ -270,78 +266,82 @@ footer a { color: var(--line); }
   &copy; 2026 Kuk Jin Jang, Hongik University &middot;
   <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>; commercial or
   closed-source use by permission (<a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>) &middot;
-  the loop, the order of the steps and the eight data points follow the short video
+  the stepper follows the Hour 1 demo, whose loop comes from
   &ldquo;Machine Learning From Scratch, Part 1&rdquo; by
   <a href="https://www.tiktok.com/@machinelearningtogo">@machinelearningtogo</a> on TikTok
 </footer>
+
 
 <script>
 "use strict";
 // ---- data and settings --------------------------------------------------------
 const DATA = {
-  8: { xs: [1, 2, 3, 4, 5, 6, 7, 8], ys: [2.9, 3.4, 4.9, 4.7, 6.2, 6.9, 7.3, 8.6] },
-  5: { xs: [1, 2, 3, 4, 5],          ys: [2.9, 3.4, 4.9, 4.7, 6.2] },
+  overlap:   { xs: [1, 2, 3, 4, 5, 6, 7, 8], ys: [0, 0, 0, 1, 0, 1, 1, 1] },
+  separable: { xs: [1, 2, 3, 4, 5, 6, 7, 8], ys: [0, 0, 0, 0, 1, 1, 1, 1] },
 };
 const EPOCHS = 1000;
 
 const CODE = [
+  ["import math", ""],
   ["xs = {XS}", ""],
-  ["ys = {YS}", ""],
+  ["ys = {YS}", "# 0 or 1"],
   ["w, b = 0.0, 0.0", ""],
   ["lr = {LR}", ""],
   ["for epoch in range(1000):", ""],
   ["    dw, db = 0.0, 0.0", "# reset the two sums"],
   ["    for x, y in zip(xs, ys):", "# visit every point"],
-  ["        pred = w * x + b", "# prediction"],
-  ["        err = pred - y", "# error"],
-  ["        dw += 2 * err * x / len(xs)", "# contribution to dL/dw"],
-  ["        db += 2 * err / len(xs)", "# contribution to dL/db"],
+  ["        p = 1 / (1 + math.exp(-(w * x + b)))", "# sigmoid"],
+  ["        err = p - y", "# error"],
+  ["        dw += err * x / len(xs)", "# contribution to dL/dw"],
+  ["        db += err / len(xs)", "# contribution to dL/db"],
   ["    w -= lr * dw", "# step against the error"],
   ["    b -= lr * db", ""],
 ];
+const CHANGED = new Set([9, 11, 12]);   // lines that differ from the linear-regression loop
 
 // ---- state --------------------------------------------------------------------
-let S;               // the interpreter state
-let timer = null;    // line-by-line playback
-let running = false; // run-all-epochs animation
-let showExact = false;
+let S, timer = null, running = false, showExact = false;
+
+const sig = (z) => 1 / (1 + Math.exp(-z));
+function bce(w, b, xs, ys) {
+  let s = 0;
+  for (let i = 0; i < xs.length; i++) {
+    const p = Math.min(1 - 1e-15, Math.max(1e-15, sig(w * xs[i] + b)));
+    s += -(ys[i] * Math.log(p) + (1 - ys[i]) * Math.log(1 - p));
+  }
+  return s / xs.length;
+}
+// The minimum has no formula; find it numerically with Newton's method.
+function minimum(xs, ys) {
+  let b = 0, w = 0;
+  for (let it = 0; it < 60; it++) {
+    let gb = 0, gw = 0, hbb = 0, hbw = 0, hww = 0;
+    for (let i = 0; i < xs.length; i++) {
+      const p = sig(w * xs[i] + b), q = p * (1 - p), e = p - ys[i];
+      gb += e; gw += e * xs[i]; hbb += q; hbw += q * xs[i]; hww += q * xs[i] * xs[i];
+    }
+    const det = hbb * hww - hbw * hbw;
+    if (!(det > 1e-12)) return null;
+    b -= (hww * gb - hbw * gw) / det; w -= (hbb * gw - hbw * gb) / det;
+    if (Math.abs(w) > 60) return null;           // separable data: no minimum
+  }
+  return { w, b, L: bce(w, b, xs, ys) };
+}
 
 function newState() {
-  const n = +document.getElementById("data").value;
+  const key = document.getElementById("data").value;
   const lr = +document.getElementById("lr").value;
-  const { xs, ys } = DATA[n];
+  const { xs, ys } = DATA[key];
   return {
-    xs, ys, n, lr,
-    line: 1,          // the line about to run (1-based)
-    started: false,   // true once line 1 has run
-    epoch: 0,         // epochs completed
-    k: -1,            // index of the current point
-    w: 0, b: 0, dw: null, db: null, x: null, y: null, pred: null, err: null,
-    cw: new Array(xs.length).fill(null),  // contributions this epoch
-    cb: new Array(xs.length).fill(null),
-    lastCw: null, lastCb: null,           // the last complete epoch's contributions
-    losses: [mse(0, 0, xs, ys)],
-    changed: new Set(),
-    caption: "Press <b>Next line</b> (or &rarr;) to run the program one line at a time.",
-    done: false, diverged: false, ran: null,
+    key, xs, ys, n: xs.length, lr, line: 1, started: false, epoch: 0, k: -1,
+    w: 0, b: 0, dw: null, db: null, x: null, y: null, p: null, err: null,
+    cw: new Array(xs.length).fill(null), cb: new Array(xs.length).fill(null), lastCw: null, lastCb: null,
+    losses: [bce(0, 0, xs, ys)], changed: new Set(), ran: null, done: false,
+    caption: "Press <b>Next line</b> (or &rarr;) to run the program one line at a time. " +
+             "Lines 9, 11 and 12 are the only ones that differ from the linear-regression loop.",
   };
 }
 
-function mse(w, b, xs, ys) {
-  let s = 0;
-  for (let i = 0; i < xs.length; i++) { const e = w * xs[i] + b - ys[i]; s += e * e; }
-  return s / xs.length;
-}
-
-function exactAnswer(xs, ys) {
-  const n = xs.length;
-  let sx = 0, sy = 0, sxx = 0, sxy = 0;
-  for (let i = 0; i < n; i++) { sx += xs[i]; sy += ys[i]; sxx += xs[i] * xs[i]; sxy += xs[i] * ys[i]; }
-  const w = (n * sxy - sx * sy) / (n * sxx - sx * sx);
-  return { w, b: (sy - w * sx) / n };
-}
-
-// Python-like number formatting, so inf and nan read as they would in the terminal.
 function f(v, d = 3) {
   if (v === null || v === undefined) return "—";
   if (Number.isNaN(v)) return "nan";
@@ -350,130 +350,83 @@ function f(v, d = 3) {
   return v.toFixed(d);
 }
 const g = (v) => f(v, 3);
-const gp = (v) => (v !== null && v < 0 ? `(${g(v)})` : g(v));  // a factor in a product
+const gp = (v) => (v !== null && v < 0 ? `(${g(v)})` : g(v));
+const boundary = (w, b) => (Math.abs(w) > 1e-9 ? -b / w : null);
 
 // ---- the interpreter: run one line ----------------------------------------------
 function stepLine() {
   if (S.done) return;
   S.changed = new Set();
-  const L = S.line;
-  S.ran = L;
+  const L = S.line; S.ran = L;
   const { xs, ys, n, lr } = S;
   switch (L) {
-    case 1:
-      S.started = true;
-      S.caption = `The data: ${n} measurements. Each <b>x</b> comes with the <b>y</b> that was observed for it.`;
-      S.line = 2; break;
-    case 2:
-      S.caption = `The observed values <b>y</b>, one for each x.`;
-      S.line = 3; break;
-    case 3:
-      S.w = 0; S.b = 0; S.changed.add("w").add("b");
-      S.caption = `The line starts flat: slope <b>w</b> = 0 (no tilt) and bias <b>b</b> = 0 (no lift), so it predicts 0 for every x.`;
-      S.line = 4; break;
-    case 4:
-      S.changed.add("lr");
-      S.caption = `The learning rate <b>&eta; = ${lr}</b> decides how big each correction may be.`;
-      S.line = 5; break;
-    case 5:
-      if (S.epoch >= EPOCHS) {
-        S.done = true;
-        S.caption = `All ${EPOCHS} epochs are done: w = ${g(S.w)}, b = ${g(S.b)}, loss ${f(S.losses.at(-1), 4)}.`;
-        break;
-      }
-      S.changed.add("epoch");
-      S.caption = `Epoch ${S.epoch + 1} of ${EPOCHS}: one full pass through all ${n} points.`;
-      S.line = 6; break;
+    case 1: S.started = true; S.caption = "The <b>math</b> module provides <b>exp</b>, needed for the sigmoid."; S.line = 2; break;
+    case 2: S.caption = `The inputs: ${n} values of x.`; S.line = 3; break;
+    case 3: S.caption = `The labels: each <b>y</b> is 0 or 1 (for example, fail or pass). The task is to predict the probability that y = 1.`; S.line = 4; break;
+    case 4: S.w = 0; S.b = 0; S.changed.add("w").add("b");
+      S.caption = `Start from w = 0 and b = 0. Then w&middot;x + b = 0 for every x, and the sigmoid of 0 is 0.5: every point gets probability 0.5.`; S.line = 5; break;
+    case 5: S.changed.add("lr"); S.caption = `The learning rate <b>&eta; = ${lr}</b> decides how big each correction may be.`; S.line = 6; break;
     case 6:
-      S.dw = 0; S.db = 0; S.k = -1; S.changed.add("dw").add("db");
-      S.cw.fill(null); S.cb.fill(null);
-      S.x = S.y = S.pred = S.err = null;
-      S.caption = `Reset the two sums, <b>dw</b> and <b>db</b> (the counters for the tilt and the lift).`;
-      S.line = 7; break;
+      if (S.epoch >= EPOCHS) { S.done = true; S.caption = `All ${EPOCHS} epochs are done: w = ${g(S.w)}, b = ${g(S.b)}, loss ${f(S.losses.at(-1), 4)}.`; break; }
+      S.changed.add("epoch"); S.caption = `Epoch ${S.epoch + 1} of ${EPOCHS}: one full pass through all ${n} points.`; S.line = 7; break;
     case 7:
+      S.dw = 0; S.db = 0; S.k = -1; S.changed.add("dw").add("db"); S.cw.fill(null); S.cb.fill(null);
+      S.x = S.y = S.p = S.err = null;
+      S.caption = `Reset the two sums, <b>dw</b> and <b>db</b>.`; S.line = 8; break;
+    case 8:
       if (S.k + 1 < n) {
-        S.k += 1; S.x = xs[S.k]; S.y = ys[S.k]; S.pred = S.err = null;
-        S.changed.add("x").add("y");
-        S.caption = `Visit point ${S.k + 1}: x = ${S.x}, y = ${S.y}.`;
-        S.line = 8;
+        S.k += 1; S.x = xs[S.k]; S.y = ys[S.k]; S.p = S.err = null; S.changed.add("x").add("y");
+        S.caption = `Visit point ${S.k + 1}: x = ${S.x}, y = ${S.y}.`; S.line = 9;
       } else {
         S.lastCw = S.cw.slice(); S.lastCb = S.cb.slice();
-        S.caption = `All ${n} points have contributed. dw = ${g(S.dw)} and db = ${g(S.db)} are the two derivatives of the loss.`;
-        S.line = 12;
+        S.caption = `All ${n} points have contributed. dw = ${g(S.dw)} and db = ${g(S.db)} are the two derivatives of the loss.`; S.line = 13;
       }
       break;
-    case 8:
-      S.pred = S.w * S.x + S.b; S.changed.add("pred");
-      S.caption = `The prediction (the line's guess): <span class="math">pred = w&middot;x + b = ${gp(S.w)}&middot;${S.x} + ${gp(S.b)} = ${g(S.pred)}</span>`;
-      S.line = 9; break;
-    case 9:
-      S.err = S.pred - S.y; S.changed.add("err");
-      S.caption = `The error (the guess minus the truth): <span class="math">err = pred &minus; y = ${g(S.pred)} &minus; ${S.y} = ${g(S.err)}</span>. On the chart it is the vertical gap.`;
+    case 9: {
+      const z = S.w * S.x + S.b; S.p = sig(z); S.changed.add("p");
+      S.caption = `<b>The changed line.</b> The prediction is now a probability (the line's guess, squashed into (0, 1) by the sigmoid): ` +
+        `<span class="math">p = &sigma;(w&middot;x + b) = &sigma;(${gp(S.w)}&middot;${S.x} + ${gp(S.b)}) = &sigma;(${g(z)}) = ${g(S.p)}</span>`;
       S.line = 10; break;
-    case 10: {
-      const c = 2 * S.err * S.x / n;
-      S.cw[S.k] = c; S.dw += c; S.changed.add("dw");
-      S.caption = `Its contribution to dL/dw (its vote on the tilt): <span class="math">2&middot;err&middot;x/n = 2&middot;${gp(S.err)}&middot;${S.x}/${n} = ${g(c)}</span>. Running sum dw = ${g(S.dw)}.`;
-      S.line = 11; break;
     }
+    case 10:
+      S.err = S.p - S.y; S.changed.add("err");
+      S.caption = `The error (the guess minus the truth): <span class="math">err = p &minus; y = ${g(S.p)} &minus; ${S.y} = ${g(S.err)}</span>. ` +
+        (S.y === 1 ? "The label is 1, so the error is negative unless p is already 1." : "The label is 0, so the error is positive unless p is already 0.");
+      S.line = 11; break;
     case 11: {
-      const c = 2 * S.err / n;
-      S.cb[S.k] = c; S.db += c; S.changed.add("db");
-      S.caption = `Its contribution to dL/db (its vote on the lift): <span class="math">2&middot;err/n = 2&middot;${gp(S.err)}/${n} = ${g(c)}</span>. Running sum db = ${g(S.db)}.`;
-      S.line = 7; break;
+      const c = S.err * S.x / n; S.cw[S.k] = c; S.dw += c; S.changed.add("dw");
+      S.caption = `Its contribution to dL/dw (its vote on w): <span class="math">err&middot;x/n = ${gp(S.err)}&middot;${S.x}/${n} = ${g(c)}</span>. ` +
+        `There is no factor 2 here: the cross-entropy's derivative has none. Running sum dw = ${g(S.dw)}.`;
+      S.line = 12; break;
     }
     case 12: {
-      const old = S.w; S.w = S.w - lr * S.dw; S.changed.add("w");
-      S.caption = `Step against the error: <span class="math">w &larr; w &minus; &eta;&middot;dw = ${g(old)} &minus; ${lr}&middot;(${g(S.dw)}) = ${g(S.w)}</span>`;
-      S.line = 13; break;
+      const c = S.err / n; S.cb[S.k] = c; S.db += c; S.changed.add("db");
+      S.caption = `Its contribution to dL/db (its vote on b): <span class="math">err/n = ${gp(S.err)}/${n} = ${g(c)}</span>. Running sum db = ${g(S.db)}.`;
+      S.line = 8; break;
     }
     case 13: {
-      const old = S.b; S.b = S.b - lr * S.db; S.changed.add("b");
-      S.epoch += 1;
-      const L2 = mse(S.w, S.b, xs, ys);
-      S.losses.push(L2);
-      S.caption = `<span class="math">b &larr; b &minus; &eta;&middot;db = ${g(old)} &minus; ${lr}&middot;(${g(S.db)}) = ${g(S.b)}</span>. The line tilts and lifts; the loss is now ${f(L2, 4)}.`;
-      if (!Number.isFinite(L2) || L2 > 1e12) {
-        S.diverged = true; S.done = true;
-        S.caption += ` The loss has passed 10<sup>12</sup> and grows every epoch: the steps diverge.`;
-      }
-      S.line = 5; break;
+      const old = S.w; S.w -= lr * S.dw; S.changed.add("w");
+      S.caption = `Step against the error: <span class="math">w &larr; w &minus; &eta;&middot;dw = ${g(old)} &minus; ${lr}&middot;${gp(S.dw)} = ${g(S.w)}</span>`;
+      S.line = 14; break;
+    }
+    case 14: {
+      const old = S.b; S.b -= lr * S.db; S.changed.add("b"); S.epoch += 1;
+      const L2 = bce(S.w, S.b, xs, ys); S.losses.push(L2);
+      const bd = boundary(S.w, S.b);
+      S.caption = `<span class="math">b &larr; b &minus; &eta;&middot;db = ${g(old)} &minus; ${lr}&middot;${gp(S.db)} = ${g(S.b)}</span>. ` +
+        `The loss is now ${f(L2, 4)}` + (bd !== null ? `, and the decision boundary (p = 0.5) is at x = ${g(bd)}.` : ".");
+      S.line = 6; break;
     }
   }
 }
-
-// Advance to the start of the next point (line 7 with a new k) or the end of the epoch.
-function stepPoint() {
-  if (S.done) return;
-  let guard = 0;
-  do { stepLine(); guard++; } while (!S.done && guard < 50 && S.ran !== 11 && S.line !== 12);
-}
-
-// Advance to the end of the current (or next) epoch.
-function stepEpoch() {
-  if (S.done) return;
-  const target = S.epoch + 1;
-  let guard = 0;
-  while (!S.done && S.epoch < target && guard < 200) { stepLine(); guard++; }
-}
-
-// Run whole epochs quickly (no per-line captions), used by "Run all epochs".
+function stepPoint() { if (S.done) return; let k = 0; do { stepLine(); k++; } while (!S.done && k < 60 && S.ran !== 12 && S.line !== 13); }
+function stepEpoch() { if (S.done) return; const t = S.epoch + 1; let k = 0; while (!S.done && S.epoch < t && k < 300) { stepLine(); k++; } }
 function fastEpoch() {
-  const { xs, ys, n, lr } = S;
-  let dw = 0, db = 0;
-  const cw = [], cb = [];
-  for (let i = 0; i < n; i++) {
-    const e = S.w * xs[i] + S.b - ys[i];
-    cw.push(2 * e * xs[i] / n); cb.push(2 * e / n);
-    dw += cw[i]; db += cb[i];
-  }
+  const { xs, ys, n, lr } = S; let dw = 0, db = 0; const cw = [], cb = [];
+  for (let i = 0; i < n; i++) { const e = sig(S.w * xs[i] + S.b) - ys[i]; cw.push(e * xs[i] / n); cb.push(e / n); dw += cw[i]; db += cb[i]; }
   S.dw = dw; S.db = db; S.lastCw = cw; S.lastCb = cb; S.cw = cw.slice(); S.cb = cb.slice();
-  S.w -= lr * dw; S.b -= lr * db; S.epoch += 1;
-  const L = mse(S.w, S.b, xs, ys);
-  S.losses.push(L);
-  S.x = S.y = S.pred = S.err = null; S.k = -1; S.line = 5; S.started = true;
-  S.ran = 13;
-  if (!Number.isFinite(L) || L > 1e12) { S.diverged = true; S.done = true; }
+  S.w -= lr * dw; S.b -= lr * db; S.epoch += 1; S.losses.push(bce(S.w, S.b, xs, ys));
+  S.x = S.y = S.p = S.err = null; S.k = -1; S.line = 6; S.ran = 14; S.started = true;
   if (S.epoch >= EPOCHS) S.done = true;
 }
 
@@ -486,86 +439,70 @@ function el(tag, attrs = {}, text) {
   return e;
 }
 function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
-// Size an SVG's coordinate system to its rendered size, so text stays at true pixel sizes.
 function fit(svg, minW, minH) {
   const r = svg.getBoundingClientRect();
   const W = Math.max(minW, Math.round(r.width)), H = Math.max(minH, Math.round(r.height));
-  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  return { W, H };
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`); return { W, H };
 }
 
 function drawChart() {
-  const svg = document.getElementById("chart");
-  svg.replaceChildren();
-  const { W, H } = fit(svg, 320, 220), m = { l: 40, r: 14, t: 10, b: 30 };
-  const xmax = S.n + 1, ymin = -1, ymax = 10;
+  const svg = document.getElementById("chart"); svg.replaceChildren();
+  const { W, H } = fit(svg, 320, 220), m = { l: 44, r: 14, t: 10, b: 30 };
+  const xmax = S.n + 1, ymin = -0.15, ymax = 1.18;
   const X = (x) => m.l + (x / xmax) * (W - m.l - m.r);
   const Y = (y) => H - m.b - ((y - ymin) / (ymax - ymin)) * (H - m.t - m.b);
-  const defs = el("defs"); const cp = el("clipPath", { id: "plot" });
-  cp.append(el("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b }));
-  defs.append(cp); svg.append(defs);
-  // grid and axes
+  const defs = el("defs"), cp = el("clipPath", { id: "plot" });
+  cp.append(el("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b })); defs.append(cp); svg.append(defs);
   for (let x = 0; x <= xmax; x++) {
     svg.append(el("line", { x1: X(x), x2: X(x), y1: Y(ymin), y2: Y(ymax), stroke: css("--grid") }));
     svg.append(el("text", { x: X(x), y: H - m.b + 17, "text-anchor": "middle", "font-size": 13, fill: css("--muted") }, x));
   }
-  for (let y = 0; y <= ymax; y += 2) {
-    svg.append(el("line", { x1: X(0), x2: X(xmax), y1: Y(y), y2: Y(y), stroke: css("--grid") }));
+  for (const y of [0, 0.5, 1]) {
+    svg.append(el("line", { x1: X(0), x2: X(xmax), y1: Y(y), y2: Y(y), stroke: y === 0.5 ? css("--rule") : css("--grid"),
+      "stroke-dasharray": y === 0.5 ? "4 4" : "" }));
     svg.append(el("text", { x: m.l - 8, y: Y(y) + 4, "text-anchor": "end", "font-size": 13, fill: css("--muted") }, y));
   }
-  svg.append(el("line", { x1: X(0), x2: X(xmax), y1: Y(0), y2: Y(0), stroke: css("--rule"), "stroke-width": 1.2 }));
   svg.append(el("text", { x: W - m.r, y: H - 4, "text-anchor": "end", "font-size": 13, fill: css("--muted") }, "x"));
-  svg.append(el("text", { x: 8, y: m.t + 10, "font-size": 13, fill: css("--muted") }, "y"));
+  svg.append(el("text", { x: 6, y: m.t + 12, "font-size": 13, fill: css("--muted") }, "p"));
   const clip = el("g", { "clip-path": "url(#plot)" }); svg.append(clip);
-  // exact answer
-  if (showExact) {
-    const ex = exactAnswer(S.xs, S.ys);
-    clip.append(el("line", { x1: X(0), y1: Y(ex.b), x2: X(xmax), y2: Y(ex.w * xmax + ex.b),
-      stroke: css("--exact"), "stroke-width": 2, "stroke-dasharray": "7 6" }));
+  const curve = (w, b, attrs) => {
+    let d = ""; for (let i = 0; i <= 120; i++) { const x = (i / 120) * xmax; d += (i ? "L" : "M") + X(x).toFixed(1) + "," + Y(sig(w * x + b)).toFixed(1); }
+    clip.append(el("path", Object.assign({ d, fill: "none" }, attrs)));
+  };
+  if (showExact && S.min) curve(S.min.w, S.min.b, { stroke: css("--exact"), "stroke-width": 2, "stroke-dasharray": "7 6" });
+  const bd = boundary(S.w, S.b);
+  if (bd !== null && bd > 0 && bd < xmax) {
+    clip.append(el("line", { x1: X(bd), x2: X(bd), y1: Y(ymin), y2: Y(ymax), stroke: css("--line"), "stroke-width": 1.5, "stroke-dasharray": "3 4" }));
+    svg.append(el("text", { "paint-order": "stroke", stroke: css("--panel"), "stroke-width": 5, x: X(bd) + 5, y: Y(ymin) - 6, "font-size": 12, fill: css("--line") }, `boundary: x = ${g(bd)}, where p = 0.5`));
   }
-  // error segments: during an epoch, the visited points; otherwise all points, faint
-  const inEpoch = S.line >= 8 && S.line <= 11 || (S.line === 7 && S.k >= 0);
+  const inEpoch = (S.line >= 9 && S.line <= 12) || (S.line === 8 && S.k >= 0);
   for (let i = 0; i < S.n; i++) {
-    const yh = S.w * S.xs[i] + S.b;
+    const p = sig(S.w * S.xs[i] + S.b);
     const visited = inEpoch ? (i < S.k || (i === S.k && S.err !== null)) : S.started;
-    if (!visited || !Number.isFinite(yh)) continue;
+    if (!visited) continue;
     const cur = inEpoch && i === S.k;
-    clip.append(el("line", { x1: X(S.xs[i]), x2: X(S.xs[i]), y1: Y(S.ys[i]), y2: Y(yh),
+    clip.append(el("line", { x1: X(S.xs[i]), x2: X(S.xs[i]), y1: Y(S.ys[i]), y2: Y(p),
       stroke: css("--err"), "stroke-width": cur ? 4 : 2.2, opacity: inEpoch ? (cur ? 1 : 0.75) : 0.55 }));
   }
-  // the line
-  if (Number.isFinite(S.w) && Number.isFinite(S.b)) {
-    clip.append(el("line", { x1: X(0), y1: Y(S.b), x2: X(xmax), y2: Y(S.w * xmax + S.b),
-      stroke: css("--line"), "stroke-width": 3.2 }));
-  }
-  // points
+  curve(S.w, S.b, { stroke: css("--line"), "stroke-width": 3.2 });
   for (let i = 0; i < S.n; i++) {
-    const cur = inEpoch && i === S.k;
+    const cur = inEpoch && i === S.k, one = S.ys[i] === 1;
     if (cur) svg.append(el("circle", { cx: X(S.xs[i]), cy: Y(S.ys[i]), r: 12, fill: "none", stroke: css("--err"), "stroke-width": 2.5 }));
-    svg.append(el("circle", { cx: X(S.xs[i]), cy: Y(S.ys[i]), r: 6, fill: css("--ink") }));
+    svg.append(el("circle", { cx: X(S.xs[i]), cy: Y(S.ys[i]), r: 6.5, fill: one ? css("--ink") : css("--bg"), stroke: css("--ink"), "stroke-width": 2 }));
   }
-  // prediction marker on the line for the current point
-  if (inEpoch && S.pred !== null && Number.isFinite(S.pred)) {
-    clip.append(el("circle", { cx: X(S.x), cy: Y(S.pred), r: 6, fill: css("--bg"), stroke: css("--line"), "stroke-width": 2.5 }));
-  }
-  // readout
-  const t = `w = ${g(S.w)}  ·  b = ${g(S.b)}  ·  epoch ${S.epoch} / ${EPOCHS}`;
-  svg.append(el("text", { x: m.l + 10, y: m.t + 20, "font-size": 16, fill: css("--ink"), "xml:space": "preserve",
-    "font-family": "ui-monospace, Menlo, Consolas, monospace" }, t));
-  if (S.diverged) {
-    svg.append(el("text", { x: m.l + 10, y: m.t + 44, "font-size": 17, fill: css("--err") },
-      "diverged: the line has left the chart"));
-  }
+  if (inEpoch && S.p !== null) clip.append(el("circle", { cx: X(S.x), cy: Y(S.p), r: 6, fill: css("--bg"), stroke: css("--line"), "stroke-width": 2.5 }));
+  const halo = { "paint-order": "stroke", stroke: css("--panel"), "stroke-width": 5, "stroke-linejoin": "round" };
+  svg.append(el("text", { ...halo, x: m.l + 10, y: m.t + 20, "font-size": 16, fill: css("--ink"), "xml:space": "preserve",
+    "font-family": "ui-monospace, Menlo, Consolas, monospace" }, `w = ${g(S.w)}  ·  b = ${g(S.b)}  ·  epoch ${S.epoch} / ${EPOCHS}`));
+  svg.append(el("text", { ...halo, x: m.l + 10, y: m.t + 40, "font-size": 13, fill: css("--muted"), "xml:space": "preserve" }, "filled: y = 1   ·   open: y = 0"));
 }
 
 function drawBars(id, vals, sum, color, scaleVals) {
-  const svg = document.getElementById(id);
-  svg.replaceChildren();
+  const svg = document.getElementById(id); svg.replaceChildren();
   const { W, H } = fit(svg, 200, 70), m = { l: 6, r: 6, t: 20, b: 16 };
   const ref = (scaleVals || vals).filter((v) => v !== null && Number.isFinite(v));
   const pos = Math.max(0, ...ref), neg = Math.max(0, ...ref.map((v) => -v));
-  const span = pos + neg || 1, plotH = H - m.t - m.b;
-  const zero = m.t + (pos / span) * plotH, k = plotH / span;
+  const span = pos + neg || 1, plotH = H - m.t - m.b, zero = m.t + (pos / span) * plotH, k = plotH / span;
   const n = vals.length, bw = (W - m.l - m.r) / n;
   svg.append(el("line", { x1: m.l, x2: W - m.r, y1: zero, y2: zero, stroke: css("--rule") }));
   vals.forEach((v, i) => {
@@ -580,58 +517,46 @@ function drawBars(id, vals, sum, color, scaleVals) {
 }
 
 function drawLoss() {
-  const svg = document.getElementById("lossChart");
-  svg.replaceChildren();
+  const svg = document.getElementById("lossChart"); svg.replaceChildren();
   const { W, H } = fit(svg, 160, 60), m = { l: 34, r: 6, t: 4, b: 16 };
-  const Ls = S.losses.filter((v) => Number.isFinite(v) && v > 0);
-  const lo = Math.min(...Ls, 0.05), hi = Math.max(...Ls, 40);
-  const lx = (e) => m.l + (e / EPOCHS) * (W - m.l - m.r);
-  const ly = (v) => H - m.b - ((Math.log10(v) - Math.log10(lo)) / (Math.log10(hi) - Math.log10(lo))) * (H - m.t - m.b);
-  for (let p = Math.ceil(Math.log10(lo)); p <= Math.floor(Math.log10(hi)); p++) {
-    svg.append(el("line", { x1: m.l, x2: W - m.r, y1: ly(10 ** p), y2: ly(10 ** p), stroke: css("--grid") }));
-    svg.append(el("text", { x: m.l - 4, y: ly(10 ** p) + 4, "text-anchor": "end", "font-size": 11, fill: css("--muted") },
-      p >= -2 && p <= 3 ? String(10 ** p) : `1e${p}`));
+  const Ls = S.losses.filter(Number.isFinite);
+  const hi = Math.max(0.8, ...Ls) * 1.05, lo = 0;
+  const lx = (e) => m.l + (e / EPOCHS) * (W - m.l - m.r), ly = (v) => H - m.b - ((v - lo) / (hi - lo)) * (H - m.t - m.b);
+  for (const v of [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5].filter((v) => v <= hi)) {
+    svg.append(el("line", { x1: m.l, x2: W - m.r, y1: ly(v), y2: ly(v), stroke: css("--grid") }));
+    svg.append(el("text", { x: m.l - 4, y: ly(v) + 4, "text-anchor": "end", "font-size": 11, fill: css("--muted") }, v));
   }
   [0, 500, 1000].forEach((e) => svg.append(el("text", { x: lx(e), y: H - 3, "text-anchor": e ? (e === 1000 ? "end" : "middle") : "start", "font-size": 11, fill: css("--muted") }, e)));
-  const ex = exactAnswer(S.xs, S.ys), Lstar = mse(ex.w, ex.b, S.xs, S.ys);
-  svg.append(el("line", { x1: m.l, x2: W - m.r, y1: ly(Lstar), y2: ly(Lstar), stroke: css("--exact"), "stroke-dasharray": "5 5" }));
-  let d = "";
-  S.losses.forEach((v, e) => { if (Number.isFinite(v) && v > 0) d += (d ? "L" : "M") + lx(e).toFixed(1) + "," + ly(Math.min(v, hi)).toFixed(1); });
-  if (d) svg.append(el("path", { d, fill: "none", stroke: css("--line"), "stroke-width": 2.2 }));
-  const last = S.losses.at(-1);
+  if (S.min) svg.append(el("line", { x1: m.l, x2: W - m.r, y1: ly(S.min.L), y2: ly(S.min.L), stroke: css("--exact"), "stroke-dasharray": "5 5" }));
+  let d = ""; S.losses.forEach((v, e) => { if (Number.isFinite(v)) d += (d ? "L" : "M") + lx(e).toFixed(1) + "," + ly(v).toFixed(1); });
+  svg.append(el("path", { d, fill: "none", stroke: css("--line"), "stroke-width": 2.2 }));
   svg.append(el("text", { x: W - m.r, y: 13, "text-anchor": "end", "font-size": 12, fill: css("--ink"),
-    "font-family": "ui-monospace, Menlo, Consolas, monospace" }, `now ${f(last, 4)}`));
+    "font-family": "ui-monospace, Menlo, Consolas, monospace" }, `now ${f(S.losses.at(-1), 4)}`));
   svg.append(el("text", { x: W - m.r, y: 27, "text-anchor": "end", "font-size": 12, fill: css("--exact"),
-    "font-family": "ui-monospace, Menlo, Consolas, monospace" }, `exact ${f(Lstar, 4)}`));
+    "font-family": "ui-monospace, Menlo, Consolas, monospace" }, S.min ? `minimum ${f(S.min.L, 4)}` : "no minimum"));
 }
 
 function drawCode() {
-  const box = document.getElementById("code");
-  box.replaceChildren();
-  const xsTxt = "[" + S.xs.join(", ") + "]";
-  const ysTxt = "[" + S.ys.map((v) => v.toFixed(1)).join(", ") + "]";
+  const box = document.getElementById("code"); box.replaceChildren();
   CODE.forEach(([src, cmt], i) => {
     const row = document.createElement("div");
-    row.className = "ln" + (i + 1 === S.ran ? " on" : "");
+    row.className = "ln" + (i + 1 === S.ran ? " on" : "") + (CHANGED.has(i + 1) ? " diff" : "");
     const no = document.createElement("span"); no.className = "no"; no.textContent = i + 1;
     const tx = document.createElement("span");
-    tx.textContent = src.replace("{XS}", xsTxt).replace("{YS}", ysTxt).replace("{LR}", String(S.lr));
+    tx.textContent = src.replace("{XS}", "[" + S.xs.join(", ") + "]").replace("{YS}", "[" + S.ys.join(", ") + "]").replace("{LR}", String(S.lr));
     if (cmt) { const c = document.createElement("span"); c.className = "c"; c.textContent = "   " + cmt; tx.append(c); }
     row.append(no, tx); box.append(row);
   });
 }
 
 function drawVars() {
-  const rows = [
-    ["w", g(S.w)], ["b", g(S.b)], ["lr", String(S.lr)], ["epoch", `${S.epoch} / ${EPOCHS}`],
-    ["x", S.x === null ? "—" : S.x], ["y", S.y === null ? "—" : S.y],
-    ["pred", g(S.pred)], ["err", g(S.err)], ["dw", g(S.dw)], ["db", g(S.db)],
-  ];
-  const t = document.getElementById("vars");
-  t.replaceChildren();
+  const bd = boundary(S.w, S.b);
+  const rows = [["w", g(S.w)], ["b", g(S.b)], ["lr", String(S.lr)], ["epoch", `${S.epoch} / ${EPOCHS}`],
+    ["x", S.x === null ? "—" : S.x], ["y", S.y === null ? "—" : S.y], ["p", g(S.p)], ["err", g(S.err)],
+    ["dw", g(S.dw)], ["db", g(S.db)]];
+  const t = document.getElementById("vars"); t.replaceChildren();
   for (const [k, v] of rows) {
-    const row = document.createElement("div");
-    row.className = "v" + (S.changed.has(k) ? " changed" : "");
+    const row = document.createElement("div"); row.className = "v" + (S.changed.has(k) ? " changed" : "");
     const a = document.createElement("span"); a.className = "k"; a.textContent = k;
     const b = document.createElement("span"); b.className = "val"; b.textContent = v;
     row.append(a, b); t.append(row);
@@ -640,71 +565,52 @@ function drawVars() {
 
 function render() {
   drawChart();
-  const midEpoch = S.cw.some((v) => v !== null);
-  const cw = midEpoch ? S.cw : (S.lastCw || S.cw), cb = midEpoch ? S.cb : (S.lastCb || S.cb);
-  const sw = cw.some((v) => v !== null) ? cw.reduce((a, v) => a + (v || 0), 0) : null;
-  const sb = cb.some((v) => v !== null) ? cb.reduce((a, v) => a + (v || 0), 0) : null;
+  const mid = S.cw.some((v) => v !== null);
+  const cw = mid ? S.cw : (S.lastCw || S.cw), cb = mid ? S.cb : (S.lastCb || S.cb);
+  const sum = (a) => (a.some((v) => v !== null) ? a.reduce((s, v) => s + (v || 0), 0) : null);
   let fw = null, fb = null;
-  if (midEpoch) {
-    fw = S.xs.map((x, i) => 2 * (S.w * x + S.b - S.ys[i]) * x / S.n);
-    fb = S.xs.map((x, i) => 2 * (S.w * x + S.b - S.ys[i]) / S.n);
+  if (mid) {
+    fw = S.xs.map((x, i) => (sig(S.w * x + S.b) - S.ys[i]) * x / S.n);
+    fb = S.xs.map((x, i) => (sig(S.w * x + S.b) - S.ys[i]) / S.n);
   }
-  drawBars("barW", cw, sw, css("--err"), fw);
-  drawBars("barB", cb, sb, css("--line"), fb);
-  drawLoss();
-  drawCode();
-  drawVars();
+  drawBars("barW", cw, sum(cw), css("--err"), fw);
+  drawBars("barB", cb, sum(cb), css("--line"), fb);
+  drawLoss(); drawCode(); drawVars();
   document.getElementById("caption").innerHTML = S.caption;
   document.getElementById("bPlay").firstChild.textContent = timer ? "Pause" : "Play";
   document.getElementById("bRun").firstChild.textContent = running ? "Stop" : "Run all";
 }
 
-// Remember which line just ran, for the highlight.
-function act(fn) {
-  return () => { stopAll(); fn(); render(); };
-}
-
-function stopAll() {
-  if (timer) { clearInterval(timer); timer = null; }
-  running = false;
-}
-
+function stopAll() { if (timer) { clearInterval(timer); timer = null; } running = false; }
+function act(fn) { return () => { stopAll(); fn(); render(); }; }
 function play() {
   if (timer) { stopAll(); render(); return; }
   stopAll();
-  const speed = +document.getElementById("speed").value;
-  const ms = Math.round(1400 / speed);
-  timer = setInterval(() => {
-    if (S.done) { stopAll(); render(); return; }
-    stepLine(); render();
-  }, ms);
+  const ms = Math.round(1400 / +document.getElementById("speed").value);
+  timer = setInterval(() => { if (S.done) { stopAll(); render(); return; } stepLine(); render(); }, ms);
   render();
 }
-
 function runAll() {
   if (running) { stopAll(); render(); return; }
-  stopAll();
-  running = true;
-  // finish the epoch in progress line by line, then whole epochs
-  let guard = 0;
-  while (S.line !== 5 && !S.done && guard++ < 200) stepLine();
+  stopAll(); running = true;
+  let k = 0; while (S.line !== 6 && !S.done && k++ < 300) stepLine();
   const tick = () => {
     if (!running) return;
     const per = S.epoch < 20 ? 1 : S.epoch < 100 ? 3 : 12;
     for (let i = 0; i < per && !S.done; i++) fastEpoch();
-    S.caption = S.diverged
-      ? `Epoch ${S.epoch}: the loss is ${f(S.losses.at(-1), 4)} and grows every epoch. With &eta; = ${S.lr} each step overshoots further than the last; left to run, the numbers would overflow to inf and then nan.`
-      : `Epoch ${S.epoch}: w = ${g(S.w)}, b = ${g(S.b)}, loss ${f(S.losses.at(-1), 4)}. Each frame runs whole epochs.`;
+    const bd = boundary(S.w, S.b);
+    S.caption = `Epoch ${S.epoch}: w = ${g(S.w)}, b = ${g(S.b)}, loss ${f(S.losses.at(-1), 4)}` +
+      (bd !== null ? `, boundary at x = ${g(bd)}.` : ".") +
+      (S.key === "separable" && S.done ? " The data can be split perfectly, so the loss keeps falling towards 0 and w keeps growing: this loss has no minimum." : "") +
+      (S.key === "overlap" && S.done && S.min ? ` The minimum, found numerically, has its boundary at x = ${g(boundary(S.min.w, S.min.b))}; there is no formula for it.` : "");
     render();
     if (S.done) { running = false; render(); return; }
     requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
 }
+function reset() { stopAll(); S = newState(); S.min = minimum(S.xs, S.ys); render(); }
 
-function reset() { stopAll(); S = newState(); render(); }
-
-// ---- wiring -------------------------------------------------------------------
 document.getElementById("bLine").onclick = act(stepLine);
 document.getElementById("bPoint").onclick = act(stepPoint);
 document.getElementById("bEpoch").onclick = act(stepEpoch);
@@ -717,7 +623,6 @@ document.getElementById("exact").onchange = (e) => { showExact = e.target.checke
 document.getElementById("speed").oninput = () => { if (timer) { stopAll(); play(); } };
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
 window.addEventListener("resize", () => render());
-
 document.addEventListener("keydown", (e) => {
   if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
   const k = e.key.toLowerCase();
@@ -729,7 +634,6 @@ document.addEventListener("keydown", (e) => {
   else if (k === "r") reset();
   else if (k === "x") { const c = document.getElementById("exact"); c.checked = !c.checked; showExact = c.checked; render(); }
 });
-
 reset();
 </script>
 </body>

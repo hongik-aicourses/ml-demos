@@ -26,7 +26,10 @@
 
   Keys: Right arrow or N = next line, P = next point, E = next epoch,
         Space = play / pause line by line, F = run all epochs, R = reset,
-        X = show / hide the exact answer.
+        X = show / hide the exact answer, S = standardize x (Hour 2),
+        G = check the gradient by central differences (Hour 2).
+  "bug in line 10" drops the factor 2 from the slope's derivative, so that the
+  finite-difference check has something to catch.
 -->
 <style>
 :root {
@@ -201,7 +204,7 @@ footer a { color: var(--line); }
 <body>
 <header>
   <h1>Linear regression by gradient descent, line by line</h1>
-  <p>Week 4, Hour 1 &middot; the loop from the slides, run on the data of the video</p>
+  <p>Week 4, Hours 1 and 2 &middot; the loop from the slides, on the data of the video</p>
 </header>
 
 <div class="controls" role="toolbar" aria-label="Demo controls">
@@ -219,6 +222,8 @@ footer a { color: var(--line); }
       <option value="0.01" selected>0.01 (video)</option>
       <option value="0.03">0.03</option>
       <option value="0.04">0.04</option>
+      <option value="0.1">0.1</option>
+      <option value="0.5">0.5</option>
     </select>
   </div>
   <span class="sep" aria-hidden="true"></span>
@@ -237,7 +242,13 @@ footer a { color: var(--line); }
     <button id="bReset">Reset<kbd>R</kbd></button>
   </div>
   <div class="group">
+    <label><input id="std" type="checkbox"> standardize x<kbd>S</kbd></label>
     <label><input id="exact" type="checkbox"> exact answer<kbd>X</kbd></label>
+  </div>
+  <span class="sep" aria-hidden="true"></span>
+  <div class="group">
+    <button id="bCheck">Check gradient<kbd>G</kbd></button>
+    <label><input id="bug" type="checkbox"> bug in line 10</label>
   </div>
 </div>
 
@@ -309,9 +320,13 @@ let showExact = false;
 function newState() {
   const n = +document.getElementById("data").value;
   const lr = +document.getElementById("lr").value;
-  const { xs, ys } = DATA[n];
+  const { ys } = DATA[n], raw = DATA[n].xs;
+  const std = document.getElementById("std").checked, bug = document.getElementById("bug").checked;
+  const mean = raw.reduce((a, v) => a + v, 0) / raw.length;
+  const sd = Math.sqrt(raw.reduce((a, v) => a + (v - mean) ** 2, 0) / raw.length);
+  const xs = std ? raw.map((v) => (v - mean) / sd) : raw;   // what the program works with
   return {
-    xs, ys, n, lr,
+    xs, ys, n, lr, raw, std, mean, sd, bug, fac: bug ? 1 : 2,
     line: 1,          // the line about to run (1-based)
     started: false,   // true once line 1 has run
     epoch: 0,         // epochs completed
@@ -350,6 +365,8 @@ function f(v, d = 3) {
   return v.toFixed(d);
 }
 const g = (v) => f(v, 3);
+const fxv = (v) => (S.std ? g(v) : v);                       // an x value as the program sees it
+const orig = () => (S.std ? { w: S.w / S.sd, b: S.b - S.w * S.mean / S.sd } : { w: S.w, b: S.b });
 const gp = (v) => (v !== null && v < 0 ? `(${g(v)})` : g(v));  // a factor in a product
 
 // ---- the interpreter: run one line ----------------------------------------------
@@ -362,7 +379,9 @@ function stepLine() {
   switch (L) {
     case 1:
       S.started = true;
-      S.caption = `The data: ${n} measurements. Each <b>x</b> comes with the <b>y</b> that was observed for it.`;
+      S.caption = S.std
+        ? `The x values, <b>standardized</b>: each x becomes (x &minus; ${g(S.mean)}) / ${g(S.sd)}, so the values have mean 0 and standard deviation 1. The chart still shows the original x.`
+        : `The data: ${n} measurements. Each <b>x</b> comes with the <b>y</b> that was observed for it.`;
       S.line = 2; break;
     case 2:
       S.caption = `The observed values <b>y</b>, one for each x.`;
@@ -394,7 +413,7 @@ function stepLine() {
       if (S.k + 1 < n) {
         S.k += 1; S.x = xs[S.k]; S.y = ys[S.k]; S.pred = S.err = null;
         S.changed.add("x").add("y");
-        S.caption = `Visit point ${S.k + 1}: x = ${S.x}, y = ${S.y}.`;
+        S.caption = `Visit point ${S.k + 1}: x = ${fxv(S.x)}, y = ${S.y}.`;
         S.line = 8;
       } else {
         S.lastCw = S.cw.slice(); S.lastCb = S.cb.slice();
@@ -404,16 +423,17 @@ function stepLine() {
       break;
     case 8:
       S.pred = S.w * S.x + S.b; S.changed.add("pred");
-      S.caption = `The prediction (the line's guess): <span class="math">pred = w&middot;x + b = ${gp(S.w)}&middot;${S.x} + ${gp(S.b)} = ${g(S.pred)}</span>`;
+      S.caption = `The prediction (the line's guess): <span class="math">pred = w&middot;x + b = ${gp(S.w)}&middot;${S.std ? gp(S.x) : S.x} + ${gp(S.b)} = ${g(S.pred)}</span>`;
       S.line = 9; break;
     case 9:
       S.err = S.pred - S.y; S.changed.add("err");
       S.caption = `The error (the guess minus the truth): <span class="math">err = pred &minus; y = ${g(S.pred)} &minus; ${S.y} = ${g(S.err)}</span>. On the chart it is the vertical gap.`;
       S.line = 10; break;
     case 10: {
-      const c = 2 * S.err * S.x / n;
+      const c = S.fac * S.err * S.x / n;
       S.cw[S.k] = c; S.dw += c; S.changed.add("dw");
-      S.caption = `Its contribution to dL/dw (its vote on the tilt): <span class="math">2&middot;err&middot;x/n = 2&middot;${gp(S.err)}&middot;${S.x}/${n} = ${g(c)}</span>. Running sum dw = ${g(S.dw)}.`;
+      S.caption = `Its contribution to dL/dw (its vote on the tilt): <span class="math">${S.bug ? "" : "2&middot;"}err&middot;x/n = ${S.bug ? "" : "2&middot;"}${gp(S.err)}&middot;${S.std ? gp(S.x) : S.x}/${n} = ${g(c)}</span>. Running sum dw = ${g(S.dw)}.` +
+        (S.bug ? ` <b>This line has a bug</b>: the factor 2 is missing. Press <b>Check gradient</b> to catch it.` : "");
       S.line = 11; break;
     }
     case 11: {
@@ -464,7 +484,7 @@ function fastEpoch() {
   const cw = [], cb = [];
   for (let i = 0; i < n; i++) {
     const e = S.w * xs[i] + S.b - ys[i];
-    cw.push(2 * e * xs[i] / n); cb.push(2 * e / n);
+    cw.push(S.fac * e * xs[i] / n); cb.push(2 * e / n);
     dw += cw[i]; db += cb[i];
   }
   S.dw = dw; S.db = db; S.lastCw = cw; S.lastCb = cb; S.cw = cw.slice(); S.cb = cb.slice();
@@ -519,39 +539,44 @@ function drawChart() {
   const clip = el("g", { "clip-path": "url(#plot)" }); svg.append(clip);
   // exact answer
   if (showExact) {
-    const ex = exactAnswer(S.xs, S.ys);
+    const ex = exactAnswer(S.raw, S.ys);
     clip.append(el("line", { x1: X(0), y1: Y(ex.b), x2: X(xmax), y2: Y(ex.w * xmax + ex.b),
       stroke: css("--exact"), "stroke-width": 2, "stroke-dasharray": "7 6" }));
   }
   // error segments: during an epoch, the visited points; otherwise all points, faint
   const inEpoch = S.line >= 8 && S.line <= 11 || (S.line === 7 && S.k >= 0);
   for (let i = 0; i < S.n; i++) {
-    const yh = S.w * S.xs[i] + S.b;
+    const yh = S.w * S.xs[i] + S.b;   // the same prediction in either units
     const visited = inEpoch ? (i < S.k || (i === S.k && S.err !== null)) : S.started;
     if (!visited || !Number.isFinite(yh)) continue;
     const cur = inEpoch && i === S.k;
-    clip.append(el("line", { x1: X(S.xs[i]), x2: X(S.xs[i]), y1: Y(S.ys[i]), y2: Y(yh),
+    clip.append(el("line", { x1: X(S.raw[i]), x2: X(S.raw[i]), y1: Y(S.ys[i]), y2: Y(yh),
       stroke: css("--err"), "stroke-width": cur ? 4 : 2.2, opacity: inEpoch ? (cur ? 1 : 0.75) : 0.55 }));
   }
   // the line
-  if (Number.isFinite(S.w) && Number.isFinite(S.b)) {
-    clip.append(el("line", { x1: X(0), y1: Y(S.b), x2: X(xmax), y2: Y(S.w * xmax + S.b),
+  const o = orig();
+  if (Number.isFinite(o.w) && Number.isFinite(o.b)) {
+    clip.append(el("line", { x1: X(0), y1: Y(o.b), x2: X(xmax), y2: Y(o.w * xmax + o.b),
       stroke: css("--line"), "stroke-width": 3.2 }));
   }
   // points
   for (let i = 0; i < S.n; i++) {
     const cur = inEpoch && i === S.k;
-    if (cur) svg.append(el("circle", { cx: X(S.xs[i]), cy: Y(S.ys[i]), r: 12, fill: "none", stroke: css("--err"), "stroke-width": 2.5 }));
-    svg.append(el("circle", { cx: X(S.xs[i]), cy: Y(S.ys[i]), r: 6, fill: css("--ink") }));
+    if (cur) svg.append(el("circle", { cx: X(S.raw[i]), cy: Y(S.ys[i]), r: 12, fill: "none", stroke: css("--err"), "stroke-width": 2.5 }));
+    svg.append(el("circle", { cx: X(S.raw[i]), cy: Y(S.ys[i]), r: 6, fill: css("--ink") }));
   }
   // prediction marker on the line for the current point
   if (inEpoch && S.pred !== null && Number.isFinite(S.pred)) {
-    clip.append(el("circle", { cx: X(S.x), cy: Y(S.pred), r: 6, fill: css("--bg"), stroke: css("--line"), "stroke-width": 2.5 }));
+    clip.append(el("circle", { cx: X(S.raw[S.k]), cy: Y(S.pred), r: 6, fill: css("--bg"), stroke: css("--line"), "stroke-width": 2.5 }));
   }
   // readout
   const t = `w = ${g(S.w)}  ·  b = ${g(S.b)}  ·  epoch ${S.epoch} / ${EPOCHS}`;
   svg.append(el("text", { x: m.l + 10, y: m.t + 20, "font-size": 16, fill: css("--ink"), "xml:space": "preserve",
     "font-family": "ui-monospace, Menlo, Consolas, monospace" }, t));
+  if (S.std && !S.diverged) {
+    svg.append(el("text", { x: m.l + 10, y: m.t + 40, "font-size": 13, fill: css("--muted"), "xml:space": "preserve" },
+      `x is standardized; in the original units the line is  w = ${g(o.w)},  b = ${g(o.b)}`));
+  }
   if (S.diverged) {
     svg.append(el("text", { x: m.l + 10, y: m.t + 44, "font-size": 17, fill: css("--err") },
       "diverged: the line has left the chart"));
@@ -608,15 +633,17 @@ function drawLoss() {
 function drawCode() {
   const box = document.getElementById("code");
   box.replaceChildren();
-  const xsTxt = "[" + S.xs.join(", ") + "]";
+  const xsTxt = S.std ? `[(x - ${+S.mean.toFixed(3)}) / ${+S.sd.toFixed(3)} for x in [${S.raw.join(", ")}]]` : "[" + S.raw.join(", ") + "]";
   const ysTxt = "[" + S.ys.map((v) => v.toFixed(1)).join(", ") + "]";
   CODE.forEach(([src, cmt], i) => {
     const row = document.createElement("div");
     row.className = "ln" + (i + 1 === S.ran ? " on" : "");
     const no = document.createElement("span"); no.className = "no"; no.textContent = i + 1;
     const tx = document.createElement("span");
-    tx.textContent = src.replace("{XS}", xsTxt).replace("{YS}", ysTxt).replace("{LR}", String(S.lr));
-    if (cmt) { const c = document.createElement("span"); c.className = "c"; c.textContent = "   " + cmt; tx.append(c); }
+    const src2 = i === 9 && S.bug ? "        dw += err * x / len(xs)" : src;
+    const cmt2 = i === 9 && S.bug ? "# BUG: the 2 is missing" : cmt;
+    tx.textContent = src2.replace("{XS}", xsTxt).replace("{YS}", ysTxt).replace("{LR}", String(S.lr));
+    if (cmt2) { const c = document.createElement("span"); c.className = "c"; c.textContent = "   " + cmt2; tx.append(c); }
     row.append(no, tx); box.append(row);
   });
 }
@@ -624,7 +651,7 @@ function drawCode() {
 function drawVars() {
   const rows = [
     ["w", g(S.w)], ["b", g(S.b)], ["lr", String(S.lr)], ["epoch", `${S.epoch} / ${EPOCHS}`],
-    ["x", S.x === null ? "—" : S.x], ["y", S.y === null ? "—" : S.y],
+    ["x", S.x === null ? "—" : fxv(S.x)], ["y", S.y === null ? "—" : S.y],
     ["pred", g(S.pred)], ["err", g(S.err)], ["dw", g(S.dw)], ["db", g(S.db)],
   ];
   const t = document.getElementById("vars");
@@ -646,7 +673,7 @@ function render() {
   const sb = cb.some((v) => v !== null) ? cb.reduce((a, v) => a + (v || 0), 0) : null;
   let fw = null, fb = null;
   if (midEpoch) {
-    fw = S.xs.map((x, i) => 2 * (S.w * x + S.b - S.ys[i]) * x / S.n);
+    fw = S.xs.map((x, i) => S.fac * (S.w * x + S.b - S.ys[i]) * x / S.n);
     fb = S.xs.map((x, i) => 2 * (S.w * x + S.b - S.ys[i]) / S.n);
   }
   drawBars("barW", cw, sw, css("--err"), fw);
@@ -704,6 +731,23 @@ function runAll() {
 
 function reset() { stopAll(); S = newState(); render(); }
 
+// Central differences at the current w and b, against the derivative the program computes.
+function checkGradient() {
+  stopAll();
+  const h = 1e-3, L = (w, b) => mse(w, b, S.xs, S.ys);
+  let sw = 0, sb = 0;
+  for (let i = 0; i < S.n; i++) { const e = S.w * S.xs[i] + S.b - S.ys[i]; sw += S.fac * e * S.xs[i] / S.n; sb += 2 * e / S.n; }
+  const cw = (L(S.w + h, S.b) - L(S.w - h, S.b)) / (2 * h), cb = (L(S.w, S.b + h) - L(S.w, S.b - h)) / (2 * h);
+  const ok = (a, c) => Math.abs(a - c) <= 1e-6 * Math.max(1, Math.abs(c));
+  const okw = ok(sw, cw), okb = ok(sb, cb);
+  S.caption = `<b>Gradient check</b> at w = ${g(S.w)}, b = ${g(S.b)}, with h = 0.001. ` +
+    `dL/dw: the code gives <span class="math">${f(sw, 4)}</span>, the central difference <span class="math">${f(cw, 4)}</span>` + (okw ? " &check;" : " &cross;") + `. ` +
+    `dL/db: the code gives <span class="math">${f(sb, 4)}</span>, the central difference <span class="math">${f(cb, 4)}</span>` + (okb ? " &check;" : " &cross;") + `. ` +
+    (okw && okb ? "They agree, so lines 10 and 11 compute the derivatives correctly."
+                : "They disagree, so the code that computes dL/dw is wrong: look at line 10.");
+  render();
+}
+
 // ---- wiring -------------------------------------------------------------------
 document.getElementById("bLine").onclick = act(stepLine);
 document.getElementById("bPoint").onclick = act(stepPoint);
@@ -714,6 +758,9 @@ document.getElementById("bReset").onclick = reset;
 document.getElementById("data").onchange = reset;
 document.getElementById("lr").onchange = reset;
 document.getElementById("exact").onchange = (e) => { showExact = e.target.checked; render(); };
+document.getElementById("std").onchange = reset;
+document.getElementById("bug").onchange = reset;
+document.getElementById("bCheck").onclick = checkGradient;
 document.getElementById("speed").oninput = () => { if (timer) { stopAll(); play(); } };
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
 window.addEventListener("resize", () => render());
@@ -728,6 +775,8 @@ document.addEventListener("keydown", (e) => {
   else if (k === "f") runAll();
   else if (k === "r") reset();
   else if (k === "x") { const c = document.getElementById("exact"); c.checked = !c.checked; showExact = c.checked; render(); }
+  else if (k === "s") { const c = document.getElementById("std"); c.checked = !c.checked; reset(); }
+  else if (k === "g") checkGradient();
 });
 
 reset();

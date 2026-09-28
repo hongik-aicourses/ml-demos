@@ -9,6 +9,7 @@ Published with GitHub Pages at <https://hongik-aicourses.github.io/ml-demos/>.
 |---|---|---|
 | 4, Hour 1 | Linear regression with gradient descent, line by line | [week04-gradient-descent/](https://hongik-aicourses.github.io/ml-demos/week04-gradient-descent/) |
 | 4, Hour 2 | Logistic regression with gradient descent, line by line | [week04-logistic-regression/](https://hongik-aicourses.github.io/ml-demos/week04-logistic-regression/) |
+| 4, Hour 3 | Evaluating a classifier: the threshold, the confusion matrix, precision, recall and the ROC curve | [week04-evaluation/](https://hongik-aicourses.github.io/ml-demos/week04-evaluation/) |
 | later | Naive Bayes spam filter, clue by clue | [naive-bayes/](https://hongik-aicourses.github.io/ml-demos/naive-bayes/) |
 
 ## Where the files come from

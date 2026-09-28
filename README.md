@@ -8,7 +8,7 @@ Published with GitHub Pages at <https://hongik-aicourses.github.io/ml-demos/>.
 | Week | Demo | Page |
 |---|---|---|
 | 4, Hour 1 | Linear regression with gradient descent, line by line | [week04-gradient-descent/](https://hongik-aicourses.github.io/ml-demos/week04-gradient-descent/) |
-| 4, Hour 3 | Logistic regression with gradient descent, line by line | [week04-logistic-regression/](https://hongik-aicourses.github.io/ml-demos/week04-logistic-regression/) |
+| 4, Hour 2 | Logistic regression with gradient descent, line by line | [week04-logistic-regression/](https://hongik-aicourses.github.io/ml-demos/week04-logistic-regression/) |
 | later | Naive Bayes spam filter, clue by clue | [naive-bayes/](https://hongik-aicourses.github.io/ml-demos/naive-bayes/) |
 
 ## Where the files come from
@@ -19,7 +19,7 @@ rather than editing this repository directly.
 
 ## Credit
 
-- **Gradient descent (Week 4, Hour 1) and logistic regression (Hour 3):** these follow
+- **Gradient descent (Week 4, Hour 1) and logistic regression (Hour 2):** these follow
   the short video *Machine Learning From Scratch, Part 1* by
   [@machinelearningtogo](https://www.tiktok.com/@machinelearningtogo) on TikTok: the
   thirteen-line loop, the order in which its steps are shown, and its eight data points

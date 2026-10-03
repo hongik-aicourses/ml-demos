@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Training an MLP</title>
-<meta name="description" content="Week 5 demo: an MLP with one hidden layer trained by gradient descent on two-dimensional data, with its decision regions and the creases of its hidden units.">
+<meta name="description" content="Week 5 demo: an MLP with one hidden layer trained by gradient descent on two-dimensional data, with its decision regions and the lines of its hidden units.">
 <!--
   (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
   licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
@@ -14,7 +14,7 @@
   Week 5, Hour 3 demo --- the multilayer perceptron.
   An MLP with one hidden layer, h = phi(W1 x + b1), p = sigmoid(W2 h + b2), trained by
   full-batch gradient descent on the mean binary cross-entropy. The left panel shades the
-  region where p > 0.5 and draws each hidden unit's line W1[j] . x + b1[j] = 0 (its crease).
+  region where p > 0.5 and draws each hidden unit's line W1[j] . x + b1[j] = 0.
   The "by hand" preset loads the two-ReLU XOR network of the slides,
   h1 = ReLU(x1 + x2), h2 = ReLU(x1 + x2 - 1), o = h1 - 2 h2, with the output logit written
   as 4 (o - 0.5), so that p > 0.5 exactly when o > 0.5.
@@ -127,7 +127,7 @@ footer a { color: var(--line); }
 <body>
 <header>
   <h1>Training an MLP with one hidden layer</h1>
-  <p>Week 5, Hour 3 &middot; decision regions, and the crease of each hidden unit, during gradient descent</p>
+  <p>Week 5, Hour 3 &middot; decision regions, and the line of each hidden unit, during gradient descent</p>
 </header>
 
 <div class="controls" role="toolbar" aria-label="Demo controls">
@@ -174,8 +174,8 @@ footer a { color: var(--line); }
 
 <main>
   <section class="card">
-    <canvas id="plane" width="720" height="720" role="img" aria-label="The data, the decision regions and the creases of the hidden units"></canvas>
-    <div class="legend"><span class="l1">predict 1 (p &gt; 0.5)</span><span class="l0">predict 0</span><span class="lc">crease of a hidden unit</span></div>
+    <canvas id="plane" width="720" height="720" role="img" aria-label="The data, the decision regions and the lines of the hidden units"></canvas>
+    <div class="legend"><span class="l1">predict 1 (p &gt; 0.5)</span><span class="l0">predict 0</span><span class="lc">line of a hidden unit</span></div>
   </section>
   <section class="right">
     <div class="caption" id="caption" aria-live="polite"></div>
@@ -405,19 +405,19 @@ function caption(loss, acc) {
   if (S.hand && S.epoch === 0)
     return "The network of the slides: <b>h1 = ReLU(x1 + x2)</b> and <b>h2 = ReLU(x1 + x2 &minus; 1)</b>, " +
            "with output o = h1 &minus; 2&thinsp;h2. The output layer here is 4(o &minus; 0.5), so p &gt; 0.5 exactly when o &gt; 0.5. " +
-           "The two creases are x1 + x2 = 0 and x1 + x2 = 1, and the red band holds the two points of class 1.";
+           "The lines of the two units are x1 + x2 = 0 and x1 + x2 = 1, and the red band holds the two points of class 1.";
   if (S.epoch === 0)
-    return `Random starting weights for ${S.H} hidden unit${S.H > 1 ? "s" : ""}. Each dashed line is the crease of one unit, ` +
+    return `Random starting weights for ${S.H} hidden unit${S.H > 1 ? "s" : ""}. Each dashed line is the line of one unit, where its input is 0, ` +
            "where its input W1[j]&middot;x + b1[j] is 0. Press <b>Play</b> to run gradient descent.";
   if (acc === 1 && loss < 0.1)
-    return `Every point is classified correctly. The creases have moved so that the ${S.H} units together enclose the class shaded red.`;
+    return `Every point is classified correctly. The lines have moved so that the ${S.H} units together enclose the class shaded red.`;
   if (S.H === 1)
-    return "With one hidden unit the boundary has a single crease, so it is still a line: one unit cannot solve this problem.";
+    return "With one hidden unit the boundary is still a single line: one unit cannot solve this problem.";
   if (S.H === 2 && ds === "circles")
-    return "Two creases give a band or a wedge, which cannot enclose the inner disc. Try 4 or 8 hidden units.";
+    return "Two units give a band or a wedge, which cannot enclose the inner disc. Try 4 or 8 hidden units.";
   if (S.epoch > 3000 && acc < 1)
     return "The loss has stopped falling before every point is correct. Press <b>New start</b> to try other random starting weights, or add units.";
-  return "Gradient descent moves the creases. The output layer combines the hidden units linearly; the bends of the boundary sit on the creases.";
+  return "Gradient descent moves the lines of the units. The output layer combines the hidden units linearly; the boundary changes direction where it crosses these lines.";
 }
 
 // ---- controls --------------------------------------------------------------------------------

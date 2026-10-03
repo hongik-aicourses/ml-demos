@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backpropagation, Step by Step</title>
+<meta name="description" content="Week 5 demo: the forward and backward pass of a two-layer network, node by node, with a gradient check and one step of gradient descent.">
+<!--
+  (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
+  licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
+  Commercial use, closed-source use, or any other licensing: by permission,
+  jangkj@hongik.ac.kr.
+
+  Week 5, make-up hour demo --- backpropagation on the network of the slides
+  (inc-week05-backprop.tex):
+      h1 = ReLU(x1 + x2 - 0.5),  h2 = ReLU(x1 + x2 - 1.5),  z = h1 - 3 h2,  p = sigmoid(z),
+  with the binary cross-entropy. With the input (1, 1) and label 0 the numbers match the
+  slides: p = 0.5, L = 0.693, dL/dv = (0.75, 0.25), delta = (0.5, -1.5). With (1, 0) and
+  label 1, unit h2 is inactive and its gradients are zero.
+  One self-contained file: no server, no network, no libraries.
+
+  Keys: F = next forward step, B = next backward step, A = all steps,
+        G = check the gradient by central differences, T = take a step, R = reset weights.
+  Click a node to see the local derivative and the upstream gradient multiplied there.
+-->
+<style>
+:root {
+  --bg: #ffffff; --panel: #f4f5f7; --ink: #1a1a1a; --muted: #5b6068; --rule: #d9dce1;
+  --fwd: #2f6fbf; --bwd: #c00000; --pos: #1e8e5a; --hl: #fff1c2; --hl-ink: #1a1a1a;
+  --btn: #ffffff; --btn-ink: #1a1a1a; --btn-edge: #b9bec6; --btn-primary: #2f6fbf;
+  --btn-primary-ink: #ffffff; --node: #ffffff; --node-off: #eceef1; --edge: #8a8f98;
+  --edge-off: #cfd3d9;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+    --fwd: #6ea8ff; --bwd: #ff6b6b; --pos: #4fcf8e; --hl: #3a3320; --hl-ink: #fff4d6;
+    --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d; --btn-primary: #4a86d8;
+    --btn-primary-ink: #0b0e12; --node: #1a1f26; --node-off: #262c34; --edge: #7d8793;
+    --edge-off: #3a424d;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+  --fwd: #6ea8ff; --bwd: #ff6b6b; --pos: #4fcf8e; --hl: #3a3320; --hl-ink: #fff4d6;
+  --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d; --btn-primary: #4a86d8;
+  --btn-primary-ink: #0b0e12; --node: #1a1f26; --node-off: #262c34; --edge: #7d8793;
+  --edge-off: #3a424d;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+}
+header {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px;
+  padding: 10px 20px 6px; border-bottom: 1px solid var(--rule);
+}
+header h1 { font-size: 22px; margin: 0; font-weight: 650; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); font-size: 14px; }
+.controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 8px 20px; border-bottom: 1px solid var(--rule); background: var(--panel);
+}
+.controls .group { display: flex; align-items: center; gap: 6px; }
+.controls .sep { width: 1px; align-self: stretch; background: var(--rule); margin: 0 4px; }
+label { font-size: 14px; color: var(--muted); }
+select, button, input { font: inherit; font-size: 15px; }
+select {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 8px;
+}
+button {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
+}
+button.primary { background: var(--btn-primary); color: var(--btn-primary-ink); border-color: var(--btn-primary); }
+button.back { background: var(--bwd); color: var(--btn-primary-ink); border-color: var(--bwd); }
+button:hover { filter: brightness(0.97); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--fwd); outline-offset: 2px; }
+kbd {
+  font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; color: inherit; opacity: 0.75;
+  border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; margin-left: 4px;
+}
+main {
+  display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 12px; padding: 10px 20px 12px;
+}
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+@media (max-width: 1300px) { kbd { display: none; } }
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px; }
+.card h2 { font-size: 15px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.left, .right { display: grid; gap: 10px; align-content: start; min-width: 0; }
+svg { display: block; width: 100%; height: auto; }
+.caption {
+  font-size: 18px; min-height: 4.4em; padding: 8px 14px;
+  background: var(--bg); border: 1px solid var(--rule); border-left: 4px solid var(--fwd);
+  border-radius: 8px;
+}
+.caption.back { border-left-color: var(--bwd); }
+.math { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.92em; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 3px 6px; border-bottom: 1px solid var(--rule); font-size: 15px; }
+th { color: var(--muted); font-weight: 600; font-size: 13px; }
+th:first-child, td:first-child { text-align: left; }
+td input {
+  width: 5.2em; text-align: right; background: var(--btn); color: var(--ink);
+  border: 1px solid var(--btn-edge); border-radius: 5px; padding: 2px 4px;
+  font: 15px ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+td.g { color: var(--bwd); font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+td.cd { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+td.ok { color: var(--pos); }
+.losses { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 15px; }
+.losses div { background: var(--bg); border: 1px solid var(--rule); border-radius: 6px; padding: 4px 8px; }
+.losses b { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-weight: 600; }
+.note { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+/* the network drawing */
+.n circle { fill: var(--node); stroke: var(--ink); stroke-width: 2; cursor: pointer; }
+.n rect { fill: var(--node); stroke: var(--ink); stroke-width: 2; cursor: pointer; }
+.n.off circle { fill: var(--node-off); stroke: var(--edge); }
+.n.sel circle, .n.sel rect { stroke: var(--bwd); stroke-width: 3.5; }
+.n text { fill: var(--ink); font-size: 24px; font-style: italic; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.e { stroke: var(--edge); stroke-width: 2; fill: none; }
+.e.off { stroke: var(--edge-off); }
+.w { fill: var(--muted); font-size: 17px; text-anchor: middle; dominant-baseline: central; }
+.fv { fill: var(--fwd); font-size: 18px; text-anchor: middle; dominant-baseline: central; }
+.gv { fill: var(--bwd); font-size: 18px; text-anchor: middle; dominant-baseline: central; font-weight: 600; }
+.bgl { fill: var(--panel); }
+footer {
+  padding: 4px 20px 6px; border-top: 1px solid var(--rule); background: var(--panel);
+  font-size: 12.5px; color: var(--muted);
+}
+footer a { color: var(--fwd); }
+@media (min-width: 1800px) and (min-height: 1000px) {
+  body { font-size: 18px; }
+  header h1 { font-size: 26px; }
+  select, button { font-size: 17px; }
+  .caption { font-size: 21px; }
+  th, td { font-size: 17px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Backpropagation, step by step</h1>
+  <p>Week 5, make-up hour &middot; the network of the slides, one node at a time</p>
+</header>
+
+<div class="controls" role="toolbar" aria-label="Demo controls">
+  <div class="group">
+    <label for="inp">Input and label</label>
+    <select id="inp">
+      <option value="0">x = (0, 0), y = 0</option>
+      <option value="1">x = (0, 1), y = 1</option>
+      <option value="2">x = (1, 0), y = 1</option>
+      <option value="3" selected>x = (1, 1), y = 0</option>
+    </select>
+  </div>
+  <span class="sep" aria-hidden="true"></span>
+  <div class="group">
+    <button id="bF" class="primary">Forward<kbd>F</kbd></button>
+    <button id="bB" class="back">Backward<kbd>B</kbd></button>
+    <button id="bA">All steps<kbd>A</kbd></button>
+  </div>
+  <span class="sep" aria-hidden="true"></span>
+  <div class="group">
+    <button id="bG">Check gradient<kbd>G</kbd></button>
+  </div>
+  <span class="sep" aria-hidden="true"></span>
+  <div class="group">
+    <label for="lr">&eta;</label>
+    <select id="lr">
+      <option value="0.1" selected>0.1</option>
+      <option value="0.5">0.5</option>
+      <option value="1">1.0</option>
+    </select>
+    <button id="bT">Take a step<kbd>T</kbd></button>
+    <button id="bR">Reset weights<kbd>R</kbd></button>
+  </div>
+</div>
+
+<main>
+  <section class="left">
+    <div class="card">
+      <svg id="net" viewBox="0 0 900 430" role="img" aria-label="The network with its values and gradients"></svg>
+    </div>
+    <div class="caption" id="caption" aria-live="polite"></div>
+  </section>
+  <section class="right">
+    <div class="card">
+      <h2>Weights and their gradients for this example</h2>
+      <table id="tab">
+        <thead><tr><th>parameter</th><th>value</th><th>backprop</th><th>central diff.</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="note">Edit a value and the pass starts again. The central difference uses h = 0.0001.</p>
+    </div>
+    <div class="card">
+      <h2>Loss</h2>
+      <div class="losses">
+        <div>this example <b id="lEx">&ndash;</b></div>
+        <div>mean of the four inputs <b id="lAll">&ndash;</b></div>
+      </div>
+      <p class="note" id="history"></p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  &copy; 2026 Kuk Jin Jang, Hongik University &middot;
+  <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>; commercial or
+  closed-source use by permission (<a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>)
+</footer>
+
+<script>
+"use strict";
+// ---- the network of the slides ------------------------------------------------------
+const XS = [[0, 0], [0, 1], [1, 0], [1, 1]], YS = [0, 1, 1, 0];
+const START = { W: [[1, 1], [1, 1]], b: [-0.5, -1.5], v: [1, -3], c: 0 };
+const PARAMS = [
+  ["W11", "w from x₁ to h₁", (P) => P.W[0][0], (P, t) => (P.W[0][0] = t), (G) => G.W[0][0]],
+  ["W12", "w from x₂ to h₁", (P) => P.W[0][1], (P, t) => (P.W[0][1] = t), (G) => G.W[0][1]],
+  ["W21", "w from x₁ to h₂", (P) => P.W[1][0], (P, t) => (P.W[1][0] = t), (G) => G.W[1][0]],
+  ["W22", "w from x₂ to h₂", (P) => P.W[1][1], (P, t) => (P.W[1][1] = t), (G) => G.W[1][1]],
+  ["b1", "bias of h₁", (P) => P.b[0], (P, t) => (P.b[0] = t), (G) => G.b[0]],
+  ["b2", "bias of h₂", (P) => P.b[1], (P, t) => (P.b[1] = t), (G) => G.b[1]],
+  ["v1", "w from h₁ to p", (P) => P.v[0], (P, t) => (P.v[0] = t), (G) => G.v[0]],
+  ["v2", "w from h₂ to p", (P) => P.v[1], (P, t) => (P.v[1] = t), (G) => G.v[1]],
+  ["c", "bias of p", (P) => P.c, (P, t) => (P.c = t), (G) => G.c],
+];
+const sig = (z) => 1 / (1 + Math.exp(-z));
+const bce = (p, y) => -(y * Math.log(p) + (1 - y) * Math.log(1 - p));
+const clone = (P) => ({ W: P.W.map((r) => r.slice()), b: P.b.slice(), v: P.v.slice(), c: P.c });
+
+function forward(P, x) {
+  const a = [0, 1].map((j) => P.W[j][0] * x[0] + P.W[j][1] * x[1] + P.b[j]);
+  const h = a.map((t) => Math.max(0, t));
+  const z = P.v[0] * h[0] + P.v[1] * h[1] + P.c;
+  const p = sig(z);
+  return { a, h, z, p };
+}
+function backward(P, x, y) {
+  const f = forward(P, x);
+  const dz = f.p - y;
+  const dv = [dz * f.h[0], dz * f.h[1]], dc = dz;
+  const dh = [P.v[0] * dz, P.v[1] * dz];
+  const da = [0, 1].map((j) => (f.a[j] > 0 ? dh[j] : 0));
+  const dW = [0, 1].map((j) => [da[j] * x[0], da[j] * x[1]]);
+  const dx = [0, 1].map((k) => P.W[0][k] * da[0] + P.W[1][k] * da[1]);
+  return { ...f, L: bce(f.p, y), dz, dv, dc, dh, da, dW, db: da.slice(), dx,
+           G: { W: dW, b: da.slice(), v: dv, c: dc } };
+}
+const lossAt = (P, x, y) => bce(forward(P, x).p, y);
+const meanLoss = (P) => XS.reduce((s, x, i) => s + lossAt(P, x, YS[i]), 0) / XS.length;
+
+// ---- state --------------------------------------------------------------------------
+let P = clone(START);
+let fstep = 0, bstep = 0;       // forward steps 0..4, backward steps 0..5
+let sel = null;                 // selected node
+let checked = null;             // central differences, once computed
+let history = [];
+const FSTEPS = 4, BSTEPS = 5;
+
+const ex = () => +document.getElementById("inp").value;
+const fmt = (v, d = 3) => {
+  if (Math.abs(v) < 5e-13) return "0";
+  let s = v.toFixed(d).replace(/\.?0+$/, "");
+  return s === "-0" ? "0" : s.replace("-", "−");
+};
+const cur = () => backward(P, XS[ex()], YS[ex()]);
+
+// ---- drawing ------------------------------------------------------------------------
+const POS = { x1: [80, 110], x2: [80, 320], h1: [390, 110], h2: [390, 320], p: [680, 215], L: [835, 215] };
+const R = 34;
+function el(tag, attrs, text) {
+  const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+function edge(svg, a, b, off) {
+  const [x0, y0] = POS[a], [x1, y1] = POS[b];
+  const d = Math.hypot(x1 - x0, y1 - y0), ux = (x1 - x0) / d, uy = (y1 - y0) / d;
+  const ra = a === "L" ? 30 : R, rb = b === "L" ? 30 : R + 6;
+  svg.appendChild(el("line", { x1: x0 + ux * ra, y1: y0 + uy * ra, x2: x1 - ux * rb, y2: y1 - uy * rb,
+    class: "e" + (off ? " off" : ""), "marker-end": off ? "url(#ahOff)" : "url(#ah)" }));
+}
+function at(a, b, t) {
+  const [x0, y0] = POS[a], [x1, y1] = POS[b];
+  return [x0 + t * (x1 - x0), y0 + t * (y1 - y0)];
+}
+function tag(svg, x, y, text, cls) {
+  const t = el("text", { x, y, class: cls }, text);
+  svg.appendChild(t);
+  const bb = t.getBBox();
+  svg.insertBefore(el("rect", { x: bb.x - 3, y: bb.y - 1, width: bb.width + 6, height: bb.height + 2,
+    rx: 3, class: "bgl" }), t);
+}
+function draw() {
+  const svg = document.getElementById("net");
+  svg.innerHTML = "";
+  const defs = el("defs", {});
+  for (const [id, color] of [["ah", "var(--edge)"], ["ahOff", "var(--edge-off)"]]) {
+    const m = el("marker", { id, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" });
+    m.appendChild(el("path", { d: "M0,0 L10,5 L0,10 z", fill: color }));
+    defs.appendChild(m);
+  }
+  svg.appendChild(defs);
+  const r = cur(), x = XS[ex()], y = YS[ex()];
+  const off = [r.a[0] <= 0 && fstep >= 1, r.a[1] <= 0 && fstep >= 2];
+  // edges
+  for (const [i, xi] of [["x1", 0], ["x2", 1]]) for (const [j, hj] of [["h1", 0], ["h2", 1]]) edge(svg, i, j, off[hj]);
+  edge(svg, "h1", "p", off[0]); edge(svg, "h2", "p", off[1]); edge(svg, "p", "L", false);
+  // weights (grey) and gradients (red) on the edges
+  const L1 = [["x1", "h1", 0.5, 0, 0], ["x1", "h2", 0.27, 1, 0], ["x2", "h1", 0.27, 0, 1], ["x2", "h2", 0.5, 1, 1]];
+  for (const [i, j, t, jj, kk] of L1) {
+    const [px, py] = at(i, j, t);
+    tag(svg, px, py - 14, fmt(P.W[jj][kk]), "w");
+    if (bstep >= 5) tag(svg, px, py + 15, fmt(r.dW[jj][kk]), "gv");
+  }
+  for (const [j, jj] of [["h1", 0], ["h2", 1]]) {
+    const [px, py] = at(j, "p", 0.45);
+    tag(svg, px, py - 15, fmt(P.v[jj]), "w");
+    if (bstep >= 2) tag(svg, px, py + 16, fmt(r.dv[jj]), "gv");
+  }
+  // nodes
+  const nodes = [["x1", "x₁"], ["x2", "x₂"], ["h1", "h₁"], ["h2", "h₂"], ["p", "p"]];
+  for (const [k, t] of nodes) {
+    const g = el("g", { class: "n" + ((k === "h1" && off[0]) || (k === "h2" && off[1]) ? " off" : "") + (sel === k ? " sel" : ""), "data-k": k, tabindex: 0 });
+    g.appendChild(el("circle", { cx: POS[k][0], cy: POS[k][1], r: R }));
+    g.appendChild(el("text", { x: POS[k][0], y: POS[k][1] }, t));
+    svg.appendChild(g);
+  }
+  const gL = el("g", { class: "n" + (sel === "L" ? " sel" : ""), "data-k": "L", tabindex: 0 });
+  gL.appendChild(el("rect", { x: POS.L[0] - 30, y: POS.L[1] - 24, width: 60, height: 48, rx: 8 }));
+  gL.appendChild(el("text", { x: POS.L[0], y: POS.L[1] }, "L"));
+  svg.appendChild(gL);
+  // forward values (blue)
+  tag(svg, 28, POS.x1[1], fmt(x[0]), "fv"); tag(svg, 28, POS.x2[1], fmt(x[1]), "fv");
+  tag(svg, 390, 34, "bias " + fmt(P.b[0]), "w"); tag(svg, 390, 405, "bias " + fmt(P.b[1]), "w");
+  if (fstep >= 1) tag(svg, 390, 62, `a = ${fmt(r.a[0])},  h = ${fmt(r.h[0])}`, "fv");
+  if (fstep >= 2) tag(svg, 390, 375, `a = ${fmt(r.a[1])},  h = ${fmt(r.h[1])}`, "fv");
+  tag(svg, 680, 300, "bias " + fmt(P.c), "w");
+  if (fstep >= 3) tag(svg, 680, 140, `z = ${fmt(r.z)}`, "fv");
+  if (fstep >= 4) { tag(svg, 680, 165, `p = ${fmt(r.p)}`, "fv"); tag(svg, 835, 165, `L = ${fmt(r.L)}`, "fv"); }
+  tag(svg, 835, 262, `y = ${y}`, "w");
+  // gradients at the nodes (red)
+  if (bstep >= 1) tag(svg, 680, 268, `p − y = ${fmt(r.dz)}`, "gv");
+  if (bstep >= 3) { tag(svg, 530, 92, `∂L/∂h = ${fmt(r.dh[0])}`, "gv"); tag(svg, 530, 352, `∂L/∂h = ${fmt(r.dh[1])}`, "gv"); }
+  if (bstep >= 4) { tag(svg, 530, 66, `δ = ${fmt(r.da[0])}`, "gv"); tag(svg, 530, 378, `δ = ${fmt(r.da[1])}`, "gv"); }
+  svg.querySelectorAll(".n").forEach((g) => {
+    g.onclick = () => select(g.dataset.k);
+    g.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(g.dataset.k); } };
+  });
+}
+
+// ---- table and losses ---------------------------------------------------------------
+function table() {
+  const r = cur(), tb = document.querySelector("#tab tbody");
+  tb.innerHTML = "";
+  PARAMS.forEach(([name, desc, get, set, grad], i) => {
+    const tr = document.createElement("tr");
+    const g = bstep >= BSTEPS ? fmt(grad(r.G), 4) : "";
+    const cd = checked ? fmt(checked[i], 4) : "";
+    const ok = checked && Math.abs(checked[i] - grad(r.G)) < 1e-6;
+    tr.innerHTML = `<td title="${desc}">${name}</td><td><input aria-label="${desc}" value="${+get(P).toFixed(4)}"></td>` +
+      `<td class="g">${g}</td><td class="cd${ok ? " ok" : ""}">${cd}${checked ? (ok ? " ✓" : " ✗") : ""}</td>`;
+    tr.querySelector("input").onchange = (e) => {
+      const t = parseFloat(e.target.value);
+      if (Number.isFinite(t)) { set(P, t); restart("You changed " + name + ". Press <b>Forward</b> to run the new network."); }
+      else e.target.value = +get(P).toFixed(4);
+    };
+    tb.appendChild(tr);
+  });
+  document.getElementById("lEx").textContent = fstep >= FSTEPS ? fmt(r.L, 4) : "–";
+  document.getElementById("lAll").textContent = fmt(meanLoss(P), 4);
+  document.getElementById("history").innerHTML = history.slice(-4).join("<br>");
+}
+
+// ---- captions -----------------------------------------------------------------------
+let caption = "";
+function setCaption(html, back) {
+  caption = html;
+  const c = document.getElementById("caption");
+  c.innerHTML = html; c.classList.toggle("back", !!back);
+}
+function render() { draw(); table(); }
+
+function stepForward() {
+  if (fstep >= FSTEPS) { setCaption("The forward pass is complete. Press <b>Backward</b> to compute the gradients."); return; }
+  fstep++;
+  const r = cur(), x = XS[ex()];
+  const m = (s) => `<span class="math">${s}</span>`;
+  if (fstep === 1 || fstep === 2) {
+    const j = fstep - 1;
+    setCaption(`Hidden unit ${j + 1}: ${m(`a = ${fmt(P.W[j][0])}·${fmt(x[0])} + ${fmt(P.W[j][1])}·${fmt(x[1])} + (${fmt(P.b[j])}) = ${fmt(r.a[j])}`)}, ` +
+      `and ${m(`h = ReLU(a) = ${fmt(r.h[j])}`)}.` + (r.a[j] <= 0 ? " The unit is <b>inactive</b>: its output is 0." : ""));
+  } else if (fstep === 3) {
+    setCaption(`Score: ${m(`z = ${fmt(P.v[0])}·${fmt(r.h[0])} + (${fmt(P.v[1])})·${fmt(r.h[1])} + (${fmt(P.c)}) = ${fmt(r.z)}`)}.`);
+  } else {
+    setCaption(`Probability ${m(`p = σ(${fmt(r.z)}) = ${fmt(r.p)}`)}; with label ${YS[ex()]}, the loss is ${m(`L = ${fmt(r.L)}`)}. ` +
+      `The forward pass keeps every value: the backward pass needs them.`);
+  }
+  render();
+}
+function stepBackward() {
+  if (fstep < FSTEPS) { setCaption("Run the forward pass first: the backward pass uses its values."); return; }
+  if (bstep >= BSTEPS) { setCaption("The backward pass is complete. Click a node to see the multiplication done there, or press <b>Check gradient</b>.", true); return; }
+  bstep++;
+  const r = cur(), x = XS[ex()];
+  const m = (s) => `<span class="math">${s}</span>`;
+  const msg = {
+    1: `At the output, sigmoid and cross-entropy together give ${m(`∂L/∂z = p − y = ${fmt(r.p)} − ${YS[ex()]} = ${fmt(r.dz)}`)}.`,
+    2: `Each output weight gets (its input) × (the upstream ${m("p − y")}): ` +
+       `${m(`∂L/∂v₁ = ${fmt(r.h[0])}·${fmt(r.dz)} = ${fmt(r.dv[0])}`)}, ${m(`∂L/∂v₂ = ${fmt(r.h[1])}·${fmt(r.dz)} = ${fmt(r.dv[1])}`)}, ${m(`∂L/∂c = ${fmt(r.dc)}`)}.`,
+    3: `Each hidden unit gets (its weight) × (the upstream): ${m(`∂L/∂h₁ = ${fmt(P.v[0])}·${fmt(r.dz)} = ${fmt(r.dh[0])}`)}, ` +
+       `${m(`∂L/∂h₂ = ${fmt(P.v[1])}·${fmt(r.dz)} = ${fmt(r.dh[1])}`)}.`,
+    4: `The ReLU passes the gradient back only where the unit was active: ` +
+       [0, 1].map((j) => `unit ${j + 1} had ${m(`a = ${fmt(r.a[j])}`)}, so ${m(`δ = ${fmt(r.da[j])}`)}`).join("; ") + ".",
+    5: `Each first-layer weight gets (its input) × (the δ of its unit), and each bias gets δ. ` +
+       `A zero input or an inactive unit gives a zero gradient. All nine gradients are now in the table.`,
+  }[bstep];
+  setCaption(msg, true);
+  render();
+}
+function allSteps() {
+  fstep = FSTEPS; bstep = BSTEPS;
+  setCaption("Forward and backward pass complete. Click a node to see the local derivative and the upstream gradient multiplied there.", true);
+  render();
+}
+function select(k) {
+  sel = k;
+  const r = cur(), x = XS[ex()];
+  const m = (s) => `<span class="math">${s}</span>`;
+  if (bstep < BSTEPS) { setCaption(`Selected ${k}. Complete the backward pass to see its gradient.`); render(); return; }
+  const txt = {
+    L: `The backward pass starts here with ${m("∂L/∂L = 1")}.`,
+    p: `Local derivative of the loss with respect to the score, ${m("dL/dz = p − y")}, times the upstream 1: ${m(`${fmt(r.dz)}`)}.`,
+    h1: `Local derivative ${m(`∂z/∂h₁ = v₁ = ${fmt(P.v[0])}`)} times upstream ${m(`${fmt(r.dz)}`)} gives ${m(`∂L/∂h₁ = ${fmt(r.dh[0])}`)}. ` +
+        `Then the ReLU: local derivative ${r.a[0] > 0 ? 1 : 0} (a = ${fmt(r.a[0])}), so ${m(`δ₁ = ${fmt(r.da[0])}`)}.`,
+    h2: `Local derivative ${m(`∂z/∂h₂ = v₂ = ${fmt(P.v[1])}`)} times upstream ${m(`${fmt(r.dz)}`)} gives ${m(`∂L/∂h₂ = ${fmt(r.dh[1])}`)}. ` +
+        `Then the ReLU: local derivative ${r.a[1] > 0 ? 1 : 0} (a = ${fmt(r.a[1])}), so ${m(`δ₂ = ${fmt(r.da[1])}`)}.`,
+    x1: `x₁ feeds both hidden units, so its two contributions add: ${m(`∂L/∂x₁ = ${fmt(P.W[0][0])}·${fmt(r.da[0])} + ${fmt(P.W[1][0])}·${fmt(r.da[1])} = ${fmt(r.dx[0])}`)}. ` +
+        `(Inputs are data, so this gradient is not used for training.)`,
+    x2: `x₂ feeds both hidden units, so its two contributions add: ${m(`∂L/∂x₂ = ${fmt(P.W[0][1])}·${fmt(r.da[0])} + ${fmt(P.W[1][1])}·${fmt(r.da[1])} = ${fmt(r.dx[1])}`)}. ` +
+        `(Inputs are data, so this gradient is not used for training.)`,
+  }[k];
+  setCaption(txt, true);
+  render();
+}
+function checkGradient() {
+  const x = XS[ex()], y = YS[ex()], h = 1e-4;
+  checked = PARAMS.map(([, , get, set]) => {
+    const t = get(P);
+    const Q = clone(P); set(Q, t + h); const lp = lossAt(Q, x, y);
+    set(Q, t - h); const lm = lossAt(Q, x, y);
+    return (lp - lm) / (2 * h);
+  });
+  const r = cur();
+  const worst = Math.max(...PARAMS.map(([, , , , grad], i) => Math.abs(checked[i] - grad(r.G))));
+  fstep = FSTEPS; bstep = BSTEPS;
+  setCaption(`<b>Gradient check.</b> For each parameter, ${'<span class="math">(L(w + h) − L(w − h)) / 2h</span>'} with h = 0.0001, ` +
+    `beside the backpropagation value. The largest difference is ${worst.toExponential(1)}: the two agree.`, true);
+  render();
+}
+function takeStep() {
+  const x = XS[ex()], y = YS[ex()], lr = +document.getElementById("lr").value;
+  const r = cur(), before = r.L, mBefore = meanLoss(P);
+  PARAMS.forEach(([, , get, set, grad]) => set(P, get(P) - lr * grad(r.G)));
+  const after = lossAt(P, x, y), mAfter = meanLoss(P);
+  history.push(`step with η = ${lr} on (${x}): this example ${fmt(before, 4)} → ${fmt(after, 4)}, mean ${fmt(mBefore, 4)} → ${fmt(mAfter, 4)}`);
+  fstep = FSTEPS; bstep = 0; checked = null; sel = null;
+  setCaption(`One step of gradient descent with ${'<span class="math">η = ' + lr + "</span>"}: every weight moved against its gradient. ` +
+    `The loss of this example went from ${fmt(before, 4)} to ${fmt(after, 4)}; the mean over the four inputs from ${fmt(mBefore, 4)} to ${fmt(mAfter, 4)}. ` +
+    `The forward pass shows the new values; press <b>Backward</b> for the new gradients.`);
+  render();
+}
+function restart(msg) {
+  fstep = 0; bstep = 0; checked = null; sel = null;
+  setCaption(msg || "Press <b>Forward</b> to compute the values node by node.");
+  render();
+}
+
+document.getElementById("bF").onclick = stepForward;
+document.getElementById("bB").onclick = stepBackward;
+document.getElementById("bA").onclick = allSteps;
+document.getElementById("bG").onclick = checkGradient;
+document.getElementById("bT").onclick = takeStep;
+document.getElementById("bR").onclick = () => { P = clone(START); history = []; restart("The weights are back at the values of the slides. Press <b>Forward</b>."); };
+document.getElementById("inp").onchange = () => restart();
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === "f") stepForward(); else if (k === "b") stepBackward(); else if (k === "a") allSteps();
+  else if (k === "g") checkGradient(); else if (k === "t") takeStep();
+  else if (k === "r") document.getElementById("bR").click();
+});
+restart();
+</script>
+</body>
+</html>

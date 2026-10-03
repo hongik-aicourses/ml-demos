@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entropy, Cross-Entropy and KL</title>
+<meta name="description" content="Week 5 demo: a true distribution p and a model q over four outcomes, with the entropy, the cross-entropy and the KL divergence.">
+<!--
+  (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
+  licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
+  Commercial use, closed-source use, or any other licensing: by permission,
+  jangkj@hongik.ac.kr.
+
+  Week 5, Hour 2 demo --- entropy, the cross-entropy and the KL divergence. One
+  self-contained file: no server, no network, no libraries.
+
+  Two distributions over four outcomes: p (the data) and q (the model). Drag a bar to
+  change one probability; the other three are rescaled so that each distribution sums to 1.
+  q is kept at 0.001 or more, so the cross-entropy stays finite (and large).
+
+  Keys: B = bits, N = nats, E = q equal to p, U = uniform q, 1-4 = one-hot p on that outcome.
+-->
+<style>
+:root {
+  --bg: #ffffff; --panel: #f4f5f7; --ink: #1a1a1a; --muted: #5b6068; --rule: #d9dce1;
+  --grid: #eceef1; --p: #2f6fbf; --q: #c00000; --hp: #2f6fbf; --kl: #c00000;
+  --btn: #ffffff; --btn-ink: #1a1a1a; --btn-edge: #b9bec6; --on: #2f6fbf; --on-ink: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+    --grid: #222931; --p: #6ea8ff; --q: #ff6b6b; --hp: #6ea8ff; --kl: #ff6b6b;
+    --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d; --on: #4a86d8; --on-ink: #0b0e12;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+  --grid: #222931; --p: #6ea8ff; --q: #ff6b6b; --hp: #6ea8ff; --kl: #ff6b6b;
+  --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d; --on: #4a86d8; --on-ink: #0b0e12;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+}
+header {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px;
+  padding: 10px 20px 6px; border-bottom: 1px solid var(--rule);
+}
+header h1 { font-size: 22px; margin: 0; font-weight: 650; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); font-size: 14px; }
+.controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  padding: 8px 20px; border-bottom: 1px solid var(--rule); background: var(--panel);
+}
+.controls .group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+label, .lab { font-size: 14px; color: var(--muted); }
+button {
+  font: inherit; font-size: 15px;
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
+}
+button:hover { filter: brightness(0.97); }
+button.on { background: var(--on); color: var(--on-ink); border-color: var(--on); }
+button:focus-visible { outline: 3px solid var(--p); outline-offset: 2px; }
+kbd {
+  font: 12px system-ui, sans-serif; opacity: 0.75; border: 1px solid var(--rule);
+  border-radius: 4px; padding: 0 4px; margin-left: 4px;
+}
+main {
+  display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 12px; padding: 10px 20px 12px;
+}
+.left, .right { display: grid; gap: 10px; min-width: 0; min-height: 0; }
+.left { grid-template-rows: minmax(0, 1fr) auto; }
+.right { grid-template-rows: auto minmax(0, 1fr) auto; }
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 12px; min-height: 0; }
+.card h2 { font-size: 15px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.card.grow { display: flex; flex-direction: column; }
+.card.grow svg { flex: 1; min-height: 200px; width: 100%; touch-action: none; }
+#bars { min-height: 300px; cursor: ns-resize; }
+.caption {
+  font-size: 18px; padding: 8px 14px; border-left: 4px solid var(--p);
+  background: var(--panel); border-radius: 6px; min-height: 3.1em;
+}
+.measures { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; font-variant-numeric: tabular-nums; }
+.measures div { text-align: center; }
+.measures b { display: block; font-size: 26px; }
+.measures span { font-size: 13px; color: var(--muted); }
+table.terms { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 15px; }
+table.terms th { color: var(--muted); font-weight: 600; font-size: 13px; text-align: right; padding: 3px 6px; border-bottom: 1px solid var(--rule); }
+table.terms td { text-align: right; padding: 3px 6px; border-bottom: 1px solid var(--grid); }
+table.terms th:first-child, table.terms td:first-child { text-align: left; }
+table.terms tr.sum td { font-weight: 650; border-bottom: none; }
+footer { padding: 6px 20px 10px; font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--rule); }
+footer a { color: var(--p); }
+@media (min-width: 901px) and (min-height: 600px) {
+  body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  main { flex: 1; min-height: 0; }
+}
+@media (max-width: 900px) {
+  main { grid-template-columns: 1fr; padding: 10px 12px; }
+  header, .controls { padding-left: 12px; padding-right: 12px; }
+}
+@media (max-width: 1440px) { kbd { display: none; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Entropy, cross-entropy and KL</h1>
+  <p>Week 5, Hour 2 &middot; a true distribution p, a model q, and the cost of predicting with q</p>
+</header>
+<div class="controls" role="toolbar" aria-label="Demo controls">
+  <div class="group">
+    <span class="lab">unit</span>
+    <button id="uBits" class="on">bits<kbd>B</kbd></button>
+    <button id="uNats">nats<kbd>N</kbd></button>
+  </div>
+  <div class="group">
+    <span class="lab">p</span>
+    <button id="pEx">(1/2, 1/4, 1/8, 1/8)</button>
+    <button id="pUni">uniform</button>
+    <button id="pHot">one-hot on outcome 2<kbd>2</kbd></button>
+  </div>
+  <div class="group">
+    <span class="lab">q</span>
+    <button id="qEq">q = p<kbd>E</kbd></button>
+    <button id="qUni">uniform<kbd>U</kbd></button>
+    <button id="qBad">almost 0 on outcome 1</button>
+  </div>
+</div>
+<main>
+  <section class="left">
+    <div class="card grow">
+      <h2>Drag a bar up or down (blue: p, the data; red: q, the model)</h2>
+      <svg id="bars" role="img" aria-label="The two distributions as pairs of bars, one pair per outcome"></svg>
+    </div>
+    <div class="caption" id="caption" aria-live="polite"></div>
+  </section>
+  <section class="right">
+    <div class="card">
+      <div class="measures">
+        <div><b id="mH"></b><span>entropy H(p)</span></div>
+        <div><b id="mCE"></b><span>cross-entropy H(p, q)</span></div>
+        <div><b id="mKL"></b><span>KL(p &Vert; q)</span></div>
+      </div>
+    </div>
+    <div class="card grow">
+      <h2>H(p, q) = H(p) + KL(p &Vert; q)</h2>
+      <svg id="stack" role="img" aria-label="The cross-entropy as a bar made of the entropy and the KL divergence"></svg>
+    </div>
+    <div class="card">
+      <h2>Term by term</h2>
+      <table class="terms" id="terms" aria-label="The terms of the three sums"></table>
+    </div>
+  </section>
+</main>
+<footer>
+  &copy; 2026 Kuk Jin Jang, Hongik University &middot;
+  <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>; commercial or
+  closed-source use by permission (<a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>)
+</footer>
+<script>
+"use strict";
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs = {}, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function fit(svg, minW, minH) {
+  const r = svg.getBoundingClientRect();
+  const W = Math.max(minW, Math.round(r.width)), H = Math.max(minH, Math.round(r.height));
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`); return { W, H };
+}
+
+const QMIN = 0.001;
+const S = {
+  p: [0.5, 0.25, 0.125, 0.125],
+  q: [0.25, 0.25, 0.25, 0.25],
+  base: 2,                       // 2 = bits, e = nats
+  note: "",
+};
+const unit = () => (S.base === 2 ? "bits" : "nats");
+const lg = (x) => Math.log(x) / Math.log(S.base);
+
+function entropy(p) { return p.reduce((s, x) => s + (x > 0 ? -x * lg(x) : 0), 0); }
+function crossEntropy(p, q) { return p.reduce((s, x, i) => s + (x > 0 ? -x * lg(q[i]) : 0), 0); }
+
+// set component i of dist to v and rescale the others so the sum is 1
+function setProb(dist, i, v, min) {
+  const n = dist.length;
+  v = Math.min(1 - min * (n - 1), Math.max(min, v));
+  const rest = dist.reduce((s, x, j) => (j === i ? s : s + x), 0);
+  const out = dist.map((x, j) => {
+    if (j === i) return v;
+    return rest > 1e-12 ? (x / rest) * (1 - v) : (1 - v) / (n - 1);
+  });
+  if (min > 0) {                         // keep q away from 0, then renormalize the others
+    for (let j = 0; j < n; j++) if (j !== i && out[j] < min) out[j] = min;
+    const others = out.reduce((s, x, j) => (j === i ? s : s + x), 0);
+    for (let j = 0; j < n; j++) if (j !== i) out[j] *= (1 - v) / others;
+  }
+  return out;
+}
+
+function fmt(v) { return Number.isFinite(v) ? v.toFixed(3) : "∞"; }
+
+function drawBars() {
+  const svg = document.getElementById("bars"); svg.replaceChildren();
+  const { W, H } = fit(svg, 360, 240), m = { l: 50, r: 16, t: 18, b: 40 };
+  const Y = (v) => H - m.b - v * (H - m.t - m.b);
+  for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+    svg.append(el("line", { x1: m.l, x2: W - m.r, y1: Y(t), y2: Y(t), stroke: css("--grid") }));
+    svg.append(el("text", { x: m.l - 8, y: Y(t) + 5, "text-anchor": "end", "font-size": 13, fill: css("--muted") }, t));
+  }
+  const slot = (W - m.l - m.r) / 4, bw = Math.min(56, slot * 0.32);
+  S.geom = { m, H, slot, bw, Y };
+  for (let i = 0; i < 4; i++) {
+    const cx = m.l + slot * (i + 0.5);
+    for (const [key, dx, col] of [["p", -bw * 0.55, css("--p")], ["q", bw * 0.55, css("--q")]]) {
+      const v = S[key][i];
+      svg.append(el("rect", { x: cx + dx - bw / 2, y: Y(v), width: bw, height: Y(0) - Y(v), fill: col, rx: 3 }));
+      svg.append(el("text", { x: cx + dx, y: Y(v) - 6, "text-anchor": "middle", "font-size": 13, fill: css("--ink") }, v.toFixed(3)));
+    }
+    svg.append(el("text", { x: cx, y: H - m.b + 22, "text-anchor": "middle", "font-size": 14, fill: css("--muted") }, `outcome ${i + 1}`));
+  }
+}
+
+function drawStack(h, ce) {
+  const svg = document.getElementById("stack"); svg.replaceChildren();
+  const { W, H } = fit(svg, 260, 160), m = { l: 20, r: 20, t: 24, b: 30 };
+  const top = Math.max(S.base === 2 ? 2.5 : 1.8, Math.min(ce, 12) * 1.08);
+  const X = (v) => m.l + (Math.min(v, top) / top) * (W - m.l - m.r);
+  const bh = Math.min(80, Math.max(36, H - m.t - m.b - 20)), y = Math.max(m.t + 8, (H - bh) / 2 - 6);
+  svg.append(el("rect", { x: X(0), y, width: X(h) - X(0), height: bh, fill: css("--hp"), rx: 3 }));
+  svg.append(el("rect", { x: X(h), y, width: Math.max(0, X(ce) - X(h)), height: bh, fill: css("--kl"), rx: 3 }));
+  svg.append(el("text", { x: X(0), y: y - 8, "font-size": 13, fill: css("--hp") }, `H(p) = ${fmt(h)}`));
+  svg.append(el("text", { x: Math.min(X(ce), W - m.r), y: y + bh + 18, "text-anchor": "end", "font-size": 13, fill: css("--kl") }, `KL = ${fmt(ce - h)}`));
+  if (ce > top) svg.append(el("text", { x: W - m.r, y: y - 8, "text-anchor": "end", "font-size": 13, fill: css("--kl") }, "off the scale →"));
+}
+
+function drawTerms() {
+  const t = document.getElementById("terms"); t.replaceChildren();
+  const head = document.createElement("tr");
+  for (const s of ["outcome", "p", "q", "−p log p", "−p log q", "p log(p/q)"]) {
+    const th = document.createElement("th"); th.textContent = s; head.append(th);
+  }
+  t.append(head);
+  const sums = [0, 0, 0];
+  for (let i = 0; i < 4; i++) {
+    const p = S.p[i], q = S.q[i];
+    const a = p > 0 ? -p * lg(p) : 0, b = p > 0 ? -p * lg(q) : 0, c = b - a;
+    sums[0] += a; sums[1] += b; sums[2] += c;
+    const tr = document.createElement("tr");
+    for (const s of [String(i + 1), p.toFixed(3), q.toFixed(3), a.toFixed(3), b.toFixed(3), c.toFixed(3)]) {
+      const td = document.createElement("td"); td.textContent = s; tr.append(td);
+    }
+    t.append(tr);
+  }
+  const tr = document.createElement("tr"); tr.className = "sum";
+  for (const s of ["sum", "1", "1", sums[0].toFixed(3), sums[1].toFixed(3), sums[2].toFixed(3)]) {
+    const td = document.createElement("td"); td.textContent = s; tr.append(td);
+  }
+  t.append(tr);
+}
+
+function caption(h, ce) {
+  const kl = ce - h;
+  const hot = S.p.findIndex((x) => x > 0.999);
+  if (hot >= 0) {
+    return `p is one-hot on outcome ${hot + 1}, as for one labelled example: H(p) = 0 and the cross-entropy is −log q(${hot + 1}) = ${fmt(ce)} ${unit()}. Only the bar of the label matters.`;
+  }
+  if (kl < 0.0005) return `q equals p: the cross-entropy equals the entropy, ${fmt(h)} ${unit()}, and the KL divergence is 0.`;
+  const worst = S.p.map((x, i) => (x > 0 ? x * Math.log(x / S.q[i]) : 0)).reduce((a, x, i, arr) => (x > arr[a] ? i : a), 0);
+  if (S.q[worst] < 0.02 && S.p[worst] > 0.05) {
+    return `q gives outcome ${worst + 1} almost no probability, yet p gives it ${S.p[worst].toFixed(2)}: the cross-entropy is ${fmt(ce)} ${unit()}, and it grows without bound as q(${worst + 1}) goes to 0.`;
+  }
+  return `The model q costs ${fmt(kl)} ${unit()} more than the true distribution on average. The largest part comes from outcome ${worst + 1}, where p = ${S.p[worst].toFixed(2)} and q = ${S.q[worst].toFixed(2)}.`;
+}
+
+function render() {
+  const h = entropy(S.p), ce = crossEntropy(S.p, S.q);
+  document.getElementById("mH").textContent = `${fmt(h)}`;
+  document.getElementById("mCE").textContent = `${fmt(ce)}`;
+  document.getElementById("mKL").textContent = `${fmt(ce - h)}`;
+  for (const id of ["mH", "mCE", "mKL"]) document.getElementById(id).title = unit();
+  document.querySelectorAll(".measures span").forEach((s, k) => {
+    s.textContent = ["entropy H(p)", "cross-entropy H(p, q)", "KL(p ‖ q)"][k] + ` (${unit()})`;
+  });
+  drawBars(); drawStack(h, ce); drawTerms();
+  document.getElementById("caption").textContent = caption(h, ce);
+  document.getElementById("uBits").classList.toggle("on", S.base === 2);
+  document.getElementById("uNats").classList.toggle("on", S.base !== 2);
+}
+
+// dragging: the nearer bar of the pair under the pointer
+const bars = document.getElementById("bars");
+let drag = null;
+function pick(ev) {
+  const r = bars.getBoundingClientRect(), vb = bars.viewBox.baseVal;
+  const x = ((ev.clientX - r.left) / r.width) * vb.width, y = ((ev.clientY - r.top) / r.height) * vb.height;
+  const { m, H, slot } = S.geom;
+  const i = Math.floor((x - m.l) / slot);
+  if (i < 0 || i > 3) return null;
+  const cx = m.l + slot * (i + 0.5);
+  const v = (H - m.b - y) / (H - m.t - m.b);
+  return { key: x < cx ? "p" : "q", i, v };
+}
+function apply(t) {
+  if (!t) return;
+  if (t.key === "p") S.p = setProb(S.p, t.i, t.v, 0);
+  else S.q = setProb(S.q, t.i, t.v, QMIN);
+  render();
+}
+bars.addEventListener("pointerdown", (ev) => {
+  const t = pick(ev); if (!t) return;
+  drag = { key: t.key, i: t.i }; bars.setPointerCapture(ev.pointerId); apply(t);
+});
+bars.addEventListener("pointermove", (ev) => {
+  if (!drag) return;
+  const t = pick(ev); if (!t) return;
+  apply({ ...drag, v: t.v });
+});
+bars.addEventListener("pointerup", () => { drag = null; });
+bars.addEventListener("pointercancel", () => { drag = null; });
+
+function oneHot(i) { S.p = [0, 0, 0, 0]; S.p[i] = 1; render(); }
+const on = (id, f) => document.getElementById(id).addEventListener("click", f);
+on("uBits", () => { S.base = 2; render(); });
+on("uNats", () => { S.base = Math.E; render(); });
+on("pEx", () => { S.p = [0.5, 0.25, 0.125, 0.125]; render(); });
+on("pUni", () => { S.p = [0.25, 0.25, 0.25, 0.25]; render(); });
+on("pHot", () => oneHot(1));
+on("qEq", () => { S.q = S.p.map((x) => Math.max(QMIN, x)); const s = S.q.reduce((a, b) => a + b, 0); S.q = S.q.map((x) => x / s); render(); });
+on("qUni", () => { S.q = [0.25, 0.25, 0.25, 0.25]; render(); });
+on("qBad", () => { S.q = setProb(S.q, 0, QMIN, QMIN); render(); });
+document.addEventListener("keydown", (ev) => {
+  if (ev.target.closest("input, select, textarea")) return;
+  const k = ev.key.toLowerCase();
+  if (k === "b") { S.base = 2; render(); }
+  else if (k === "n") { S.base = Math.E; render(); }
+  else if (k === "e") document.getElementById("qEq").click();
+  else if (k === "u") document.getElementById("qUni").click();
+  else if (["1", "2", "3", "4"].includes(k)) oneHot(Number(k) - 1);
+});
+new ResizeObserver(() => render()).observe(document.querySelector("main"));
+render();
+requestAnimationFrame(render);
+</script>
+</body>
+</html>

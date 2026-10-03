@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Training an MLP</title>
+<meta name="description" content="Week 5 demo: an MLP with one hidden layer trained by gradient descent on two-dimensional data, with its decision regions and the creases of its hidden units.">
+<!--
+  (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
+  licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
+  Commercial use, closed-source use, or any other licensing: by permission,
+  jangkj@hongik.ac.kr.
+
+  Week 5, Hour 3 demo --- the multilayer perceptron.
+  An MLP with one hidden layer, h = phi(W1 x + b1), p = sigmoid(W2 h + b2), trained by
+  full-batch gradient descent on the mean binary cross-entropy. The left panel shades the
+  region where p > 0.5 and draws each hidden unit's line W1[j] . x + b1[j] = 0 (its crease).
+  The "by hand" preset loads the two-ReLU XOR network of the slides,
+  h1 = ReLU(x1 + x2), h2 = ReLU(x1 + x2 - 1), o = h1 - 2 h2, with the output logit written
+  as 4 (o - 0.5), so that p > 0.5 exactly when o > 0.5.
+  One self-contained file: no server, no network, no libraries.
+
+  Keys: S or Right arrow = one step, Space = play / pause, N = new start (random weights),
+        R = reset to the first start.
+-->
+<style>
+:root {
+  --bg: #ffffff; --panel: #f4f5f7; --ink: #1a1a1a; --muted: #5b6068; --rule: #d9dce1;
+  --grid: #eceef1; --line: #2f6fbf; --err: #c00000; --pos: #1e8e5a; --crease: #1e8e5a;
+  --fill1: rgba(192, 0, 0, 0.16); --fill0: rgba(47, 111, 191, 0.14);
+  --btn: #ffffff; --btn-ink: #1a1a1a; --btn-edge: #b9bec6;
+  --btn-primary: #2f6fbf; --btn-primary-ink: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+    --grid: #222931; --line: #6ea8ff; --err: #ff6b6b; --pos: #4fcf8e; --crease: #4fcf8e;
+    --fill1: rgba(255, 107, 107, 0.20); --fill0: rgba(110, 168, 255, 0.17);
+    --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d;
+    --btn-primary: #4a86d8; --btn-primary-ink: #0b0e12;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+  --grid: #222931; --line: #6ea8ff; --err: #ff6b6b; --pos: #4fcf8e; --crease: #4fcf8e;
+  --fill1: rgba(255, 107, 107, 0.20); --fill0: rgba(110, 168, 255, 0.17);
+  --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d;
+  --btn-primary: #4a86d8; --btn-primary-ink: #0b0e12;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+}
+header {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px;
+  padding: 10px 20px 6px; border-bottom: 1px solid var(--rule);
+}
+header h1 { font-size: 22px; margin: 0; font-weight: 650; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); font-size: 14px; }
+.controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 8px 20px; border-bottom: 1px solid var(--rule); background: var(--panel);
+}
+.controls .group { display: flex; align-items: center; gap: 6px; }
+.controls .sep { width: 1px; align-self: stretch; background: var(--rule); margin: 0 4px; }
+label { font-size: 14px; color: var(--muted); }
+select, button { font: inherit; font-size: 15px; }
+select {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 8px;
+}
+button {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
+}
+button.primary { background: var(--btn-primary); color: var(--btn-primary-ink); border-color: var(--btn-primary); }
+button:hover { filter: brightness(0.97); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--line); outline-offset: 2px; }
+kbd {
+  font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; color: inherit; opacity: 0.75;
+  border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; margin-left: 4px;
+}
+main {
+  display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 12px; padding: 10px 20px 12px;
+}
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+@media (max-width: 1440px) { kbd { display: none; } }
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+.card h2 { font-size: 15px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.right { display: grid; gap: 10px; align-content: start; min-width: 0; }
+canvas { display: block; width: 100%; }
+#plane { aspect-ratio: 1 / 1; max-height: calc(100vh - 210px); max-width: 100%; margin: 0 auto; }
+#loss { aspect-ratio: 2 / 1; }
+.caption {
+  font-size: 17px; padding: 8px 14px;
+  background: var(--bg); border: 1px solid var(--rule); border-left: 4px solid var(--line);
+  border-radius: 8px;
+}
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; font-variant-numeric: tabular-nums; }
+.stats div { background: var(--bg); border: 1px solid var(--rule); border-radius: 8px; padding: 4px 8px; }
+.stats .k { display: block; font-size: 12.5px; color: var(--muted); }
+.stats .val { font: 600 19px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.legend { font-size: 13.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; }
+.legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 5px; vertical-align: -1px; border-radius: 2px; }
+.legend .l1::before { background: var(--fill1); border: 1px solid var(--err); }
+.legend .l0::before { background: var(--fill0); border: 1px solid var(--line); }
+.legend .lc::before { height: 0; border-top: 2px dashed var(--crease); border-radius: 0; vertical-align: 3px; }
+#weights { font: 14px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; white-space: pre; overflow-x: auto; margin: 0; }
+footer {
+  padding: 4px 20px 6px; border-top: 1px solid var(--rule); background: var(--panel);
+  font-size: 12.5px; color: var(--muted);
+}
+footer a { color: var(--line); }
+@media (min-width: 1800px) and (min-height: 1000px) {
+  body { font-size: 18px; }
+  header h1 { font-size: 26px; }
+  select, button { font-size: 17px; }
+  .caption { font-size: 20px; }
+  #weights { font-size: 17px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Training an MLP with one hidden layer</h1>
+  <p>Week 5, Hour 3 &middot; decision regions, and the crease of each hidden unit, during gradient descent</p>
+</header>
+
+<div class="controls" role="toolbar" aria-label="Demo controls">
+  <div class="group">
+    <label for="data">Data</label>
+    <select id="data">
+      <option value="hand">by hand (XOR network)</option>
+      <option value="xor4">XOR, 4 points</option>
+      <option value="xor" selected>XOR, clusters</option>
+      <option value="circles">circles</option>
+      <option value="moons">two moons</option>
+    </select>
+  </div>
+  <div class="group">
+    <label for="width">Hidden units</label>
+    <select id="width">
+      <option>1</option><option>2</option><option selected>4</option><option>8</option>
+    </select>
+  </div>
+  <div class="group">
+    <label for="act">Activation</label>
+    <select id="act">
+      <option value="relu" selected>ReLU</option>
+      <option value="tanh">tanh</option>
+    </select>
+  </div>
+  <div class="group">
+    <label for="lr">&eta;</label>
+    <select id="lr">
+      <option value="0.03">0.03</option>
+      <option value="0.1">0.1</option>
+      <option value="0.3" selected>0.3</option>
+      <option value="1">1.0</option>
+    </select>
+  </div>
+  <span class="sep" aria-hidden="true"></span>
+  <div class="group">
+    <button id="bStep">Step<kbd>S</kbd></button>
+    <button id="bPlay" class="primary">Play<kbd>Space</kbd></button>
+    <button id="bNew">New start<kbd>N</kbd></button>
+    <button id="bReset">Reset<kbd>R</kbd></button>
+  </div>
+</div>
+
+<main>
+  <section class="card">
+    <canvas id="plane" width="720" height="720" role="img" aria-label="The data, the decision regions and the creases of the hidden units"></canvas>
+    <div class="legend"><span class="l1">predict 1 (p &gt; 0.5)</span><span class="l0">predict 0</span><span class="lc">crease of a hidden unit</span></div>
+  </section>
+  <section class="right">
+    <div class="caption" id="caption" aria-live="polite"></div>
+    <div class="stats">
+      <div><span class="k">epoch</span><span class="val" id="sEpoch">0</span></div>
+      <div><span class="k">loss (cross-entropy)</span><span class="val" id="sLoss">&ndash;</span></div>
+      <div><span class="k">accuracy</span><span class="val" id="sAcc">&ndash;</span></div>
+    </div>
+    <div class="card"><h2>Loss by epoch</h2><canvas id="loss" width="640" height="320" role="img" aria-label="The loss after each epoch"></canvas></div>
+    <div class="card"><h2>Weights</h2><pre id="weights"></pre></div>
+  </section>
+</main>
+
+<footer>
+  &copy; 2026 Kuk Jin Jang, Hongik University &middot;
+  <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>; commercial or
+  closed-source use by permission (<a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>)
+</footer>
+
+<script>
+"use strict";
+// ---- random numbers: a small seeded generator, so that a start can be repeated -------------
+function rng(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function gauss(r) {
+  const u = Math.max(r(), 1e-12), v = r();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+// ---- data sets: points [x1, x2, y] and the region of the plane to draw ---------------------
+function makeData(kind) {
+  const r = rng(7), pts = [];
+  if (kind === "xor4" || kind === "hand") {
+    return { pts: [[0, 0, 0], [1, 0, 1], [0, 1, 1], [1, 1, 0]], lo: -0.5, hi: 1.5 };
+  }
+  if (kind === "xor") {
+    for (const [cx, cy, y] of [[0, 0, 0], [1, 0, 1], [0, 1, 1], [1, 1, 0]])
+      for (let i = 0; i < 20; i++) pts.push([cx + 0.13 * gauss(r), cy + 0.13 * gauss(r), y]);
+    return { pts, lo: -0.6, hi: 1.6 };
+  }
+  if (kind === "circles") {
+    for (let i = 0; i < 100; i++) {
+      const inner = i < 50, rad = inner ? 0.5 * r() : 0.85 + 0.4 * r(), t = 2 * Math.PI * r();
+      pts.push([rad * Math.cos(t), rad * Math.sin(t), inner ? 1 : 0]);
+    }
+    return { pts, lo: -1.5, hi: 1.5 };
+  }
+  // two moons, scaled into roughly [-1.2, 1.2]
+  for (let i = 0; i < 100; i++) {
+    const t = Math.PI * r(), top = i < 50;
+    const x = top ? Math.cos(t) : 1 - Math.cos(t), y = top ? Math.sin(t) : 0.5 - Math.sin(t);
+    pts.push([(x - 0.5) * 0.9 + 0.08 * gauss(r), (y - 0.25) * 0.9 + 0.08 * gauss(r), top ? 1 : 0]);
+  }
+  return { pts, lo: -1.5, hi: 1.5 };
+}
+
+// ---- the model -------------------------------------------------------------------------------
+const S = { data: null, H: 4, act: "relu", lr: 0.3, seed: 1, W1: [], b1: [], W2: [], b2: 0,
+            epoch: 0, losses: [], playing: false, hand: false };
+
+function phi(z) { return S.act === "relu" ? Math.max(z, 0) : Math.tanh(z); }
+function dphi(z) { return S.act === "relu" ? (z > 0 ? 1 : 0) : 1 - Math.tanh(z) ** 2; }
+function sigm(z) { return 1 / (1 + Math.exp(-z)); }
+
+function init() {
+  const ds = document.getElementById("data").value;
+  S.hand = ds === "hand";
+  S.data = makeData(ds);
+  S.epoch = 0; S.losses = [];
+  if (S.hand) {
+    S.H = 2; S.act = "relu";
+    document.getElementById("width").value = "2";
+    document.getElementById("act").value = "relu";
+    S.W1 = [[1, 1], [1, 1]]; S.b1 = [0, -1];
+    S.W2 = [4, -8]; S.b2 = -2;            // 4 (h1 - 2 h2) - 2 = 4 (o - 0.5)
+  } else {
+    S.H = +document.getElementById("width").value;
+    S.act = document.getElementById("act").value;
+    const r = rng(1000 + S.seed);
+    S.W1 = []; S.b1 = []; S.W2 = [];
+    for (let j = 0; j < S.H; j++) {
+      S.W1.push([1.5 * gauss(r), 1.5 * gauss(r)]);
+      S.b1.push(0.5 * gauss(r));
+      S.W2.push(gauss(r) / Math.sqrt(S.H));
+    }
+    S.b2 = 0;
+  }
+  S.lr = +document.getElementById("lr").value;
+  S.losses.push(lossAcc().loss);
+}
+
+function forward(x1, x2) {
+  const z = [], h = [];
+  let o = S.b2;
+  for (let j = 0; j < S.H; j++) {
+    z.push(S.W1[j][0] * x1 + S.W1[j][1] * x2 + S.b1[j]);
+    h.push(phi(z[j]));
+    o += S.W2[j] * h[j];
+  }
+  return { z, h, p: sigm(o) };
+}
+
+function lossAcc() {
+  let L = 0, ok = 0;
+  for (const [x1, x2, y] of S.data.pts) {
+    const p = Math.min(Math.max(forward(x1, x2).p, 1e-12), 1 - 1e-12);
+    L -= y ? Math.log(p) : Math.log(1 - p);
+    ok += (p > 0.5) === (y === 1) ? 1 : 0;
+  }
+  const n = S.data.pts.length;
+  return { loss: L / n, acc: ok / n };
+}
+
+// one epoch of full-batch gradient descent: backpropagation through the two layers
+function step() {
+  const n = S.data.pts.length;
+  const gW1 = S.W1.map(() => [0, 0]), gb1 = S.b1.map(() => 0), gW2 = S.W2.map(() => 0);
+  let gb2 = 0;
+  for (const [x1, x2, y] of S.data.pts) {
+    const f = forward(x1, x2), g = (f.p - y) / n;    // dL/do for the cross-entropy
+    gb2 += g;
+    for (let j = 0; j < S.H; j++) {
+      gW2[j] += g * f.h[j];
+      const gz = g * S.W2[j] * dphi(f.z[j]);
+      gW1[j][0] += gz * x1; gW1[j][1] += gz * x2; gb1[j] += gz;
+    }
+  }
+  for (let j = 0; j < S.H; j++) {
+    S.W1[j][0] -= S.lr * gW1[j][0]; S.W1[j][1] -= S.lr * gW1[j][1];
+    S.b1[j] -= S.lr * gb1[j]; S.W2[j] -= S.lr * gW2[j];
+  }
+  S.b2 -= S.lr * gb2;
+  S.epoch++;
+  S.losses.push(lossAcc().loss);
+}
+
+// ---- drawing ---------------------------------------------------------------------------------
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function drawPlane() {
+  const cv = document.getElementById("plane"), ctx = cv.getContext("2d");
+  const W = cv.width, lo = S.data.lo, hi = S.data.hi;
+  const X = (v) => (v - lo) / (hi - lo) * W, Y = (v) => W - (v - lo) / (hi - lo) * W;
+  ctx.fillStyle = css("--bg"); ctx.fillRect(0, 0, W, W);
+  const cell = 8, f1 = css("--fill1"), f0 = css("--fill0");
+  for (let px = 0; px < W; px += cell)
+    for (let py = 0; py < W; py += cell) {
+      const x1 = lo + (px + cell / 2) / W * (hi - lo), x2 = hi - (py + cell / 2) / W * (hi - lo);
+      ctx.fillStyle = forward(x1, x2).p > 0.5 ? f1 : f0;
+      ctx.fillRect(px, py, cell, cell);
+    }
+  // axes through 0
+  ctx.strokeStyle = css("--grid"); ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(X(0), 0); ctx.lineTo(X(0), W); ctx.moveTo(0, Y(0)); ctx.lineTo(W, Y(0)); ctx.stroke();
+  // creases: W1[j] . x + b1[j] = 0
+  ctx.strokeStyle = css("--crease"); ctx.lineWidth = 2.2; ctx.setLineDash([9, 6]);
+  for (let j = 0; j < S.H; j++) {
+    const [a, b] = S.W1[j], c = S.b1[j];
+    ctx.beginPath();
+    if (Math.abs(b) > Math.abs(a)) {
+      ctx.moveTo(X(lo), Y(-(a * lo + c) / b)); ctx.lineTo(X(hi), Y(-(a * hi + c) / b));
+    } else if (Math.abs(a) > 1e-9) {
+      ctx.moveTo(X(-(b * lo + c) / a), Y(lo)); ctx.lineTo(X(-(b * hi + c) / a), Y(hi));
+    }
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  // points: class 1 filled circles, class 0 open squares
+  const big = S.data.pts.length <= 4, rad = big ? 13 : 6;
+  for (const [x1, x2, y] of S.data.pts) {
+    if (y === 1) {
+      ctx.fillStyle = css("--err"); ctx.beginPath(); ctx.arc(X(x1), Y(x2), rad, 0, 2 * Math.PI); ctx.fill();
+    } else {
+      ctx.strokeStyle = css("--line"); ctx.lineWidth = big ? 3.5 : 2;
+      ctx.fillStyle = css("--bg");
+      ctx.fillRect(X(x1) - rad, Y(x2) - rad, 2 * rad, 2 * rad);
+      ctx.strokeRect(X(x1) - rad, Y(x2) - rad, 2 * rad, 2 * rad);
+    }
+  }
+}
+
+function drawLoss() {
+  const cv = document.getElementById("loss"), ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height, pad = 34;
+  ctx.fillStyle = css("--bg"); ctx.fillRect(0, 0, W, H);
+  const L = S.losses, n = Math.max(L.length - 1, 1), top = Math.max(...L, 0.8);
+  ctx.strokeStyle = css("--rule"); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad, 8); ctx.lineTo(pad, H - pad); ctx.lineTo(W - 8, H - pad); ctx.stroke();
+  ctx.fillStyle = css("--muted"); ctx.font = "20px system-ui, sans-serif";
+  ctx.fillText("0", 12, H - pad + 6); ctx.fillText(top.toFixed(1), 2, 24);
+  ctx.fillText("epoch " + (L.length - 1), W - 140, H - 8);
+  ctx.strokeStyle = css("--err"); ctx.lineWidth = 3;
+  ctx.beginPath();
+  L.forEach((v, i) => {
+    const x = pad + i / n * (W - pad - 10), y = (H - pad) - v / top * (H - pad - 10);
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  });
+  ctx.stroke();
+}
+
+function fmt(v) { return (v >= 0 ? " " : "") + v.toFixed(2); }
+
+function render() {
+  const { loss, acc } = lossAcc();
+  document.getElementById("sEpoch").textContent = S.epoch;
+  document.getElementById("sLoss").textContent = loss.toFixed(3);
+  document.getElementById("sAcc").textContent = acc.toFixed(2);
+  let w = "unit   W1[j]            b1[j]    W2[j]\n";
+  for (let j = 0; j < S.H; j++)
+    w += ` h${j + 1}  [${fmt(S.W1[j][0])}, ${fmt(S.W1[j][1])}]  ${fmt(S.b1[j])}   ${fmt(S.W2[j])}\n`;
+  w += `output bias b2 = ${fmt(S.b2)}`;
+  document.getElementById("weights").textContent = w;
+  document.getElementById("caption").innerHTML = caption(loss, acc);
+  drawPlane(); drawLoss();
+}
+
+function caption(loss, acc) {
+  const ds = document.getElementById("data").value;
+  if (S.hand && S.epoch === 0)
+    return "The network of the slides: <b>h1 = ReLU(x1 + x2)</b> and <b>h2 = ReLU(x1 + x2 &minus; 1)</b>, " +
+           "with output o = h1 &minus; 2&thinsp;h2. The output layer here is 4(o &minus; 0.5), so p &gt; 0.5 exactly when o &gt; 0.5. " +
+           "The two creases are x1 + x2 = 0 and x1 + x2 = 1, and the red band holds the two points of class 1.";
+  if (S.epoch === 0)
+    return `Random starting weights for ${S.H} hidden unit${S.H > 1 ? "s" : ""}. Each dashed line is the crease of one unit, ` +
+           "where its input W1[j]&middot;x + b1[j] is 0. Press <b>Play</b> to run gradient descent.";
+  if (acc === 1 && loss < 0.1)
+    return `Every point is classified correctly. The creases have moved so that the ${S.H} units together enclose the class shaded red.`;
+  if (S.H === 1)
+    return "With one hidden unit the boundary has a single crease, so it is still a line: one unit cannot solve this problem.";
+  if (S.H === 2 && ds === "circles")
+    return "Two creases give a band or a wedge, which cannot enclose the inner disc. Try 4 or 8 hidden units.";
+  if (S.epoch > 3000 && acc < 1)
+    return "The loss has stopped falling before every point is correct. Press <b>New start</b> to try other random starting weights, or add units.";
+  return "Gradient descent moves the creases. The output layer combines the hidden units linearly; the bends of the boundary sit on the creases.";
+}
+
+// ---- controls --------------------------------------------------------------------------------
+let timer = null;
+function play(on) {
+  S.playing = on;
+  document.getElementById("bPlay").firstChild.textContent = on ? "Pause" : "Play";
+  if (timer) { cancelAnimationFrame(timer); timer = null; }
+  if (on) {
+    const tick = () => {
+      for (let k = 0; k < 15; k++) step();
+      render();
+      if (S.epoch >= 20000) { play(false); return; }
+      timer = requestAnimationFrame(tick);
+    };
+    timer = requestAnimationFrame(tick);
+  }
+}
+function restart() { play(false); init(); render(); }
+
+document.getElementById("bStep").onclick = () => { play(false); step(); render(); };
+document.getElementById("bPlay").onclick = () => play(!S.playing);
+document.getElementById("bNew").onclick = () => { S.seed++; restart(); };
+document.getElementById("bReset").onclick = () => { S.seed = 1; restart(); };
+for (const id of ["data", "width", "act"]) document.getElementById(id).onchange = () => {
+  if (id !== "data" && document.getElementById("data").value === "hand") document.getElementById("data").value = "xor4";
+  restart();
+};
+document.getElementById("lr").onchange = () => { S.lr = +document.getElementById("lr").value; };
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "SELECT") return;
+  if (e.key === " ") { e.preventDefault(); play(!S.playing); }
+  else if (e.key === "s" || e.key === "S" || e.key === "ArrowRight") { play(false); step(); render(); }
+  else if (e.key === "n" || e.key === "N") { S.seed++; restart(); }
+  else if (e.key === "r" || e.key === "R") { S.seed = 1; restart(); }
+});
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+restart();
+</script>
+</body>
+</html>

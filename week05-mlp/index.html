@@ -13,6 +13,7 @@
 
   Week 5, Hour 3 demo --- the multilayer perceptron.
   An MLP with one hidden layer, h = phi(W1 x + b1), p = sigmoid(W2 h + b2), trained by
+  (2 inputs, 1, 2, 4 or 8 hidden units, one output; drawn in the "The network" panel)
   full-batch gradient descent on the mean binary cross-entropy. The left panel shades the
   region where p > 0.5 and draws each hidden unit's line W1[j] . x + b1[j] = 0.
   The "by hand" preset loads the two-ReLU XOR network of the slides,
@@ -94,6 +95,8 @@ main {
 canvas { display: block; width: 100%; }
 #plane { aspect-ratio: 1 / 1; max-height: calc(100vh - 210px); max-width: 100%; margin: 0 auto; }
 #loss { aspect-ratio: 2 / 1; }
+#net { aspect-ratio: 2 / 1; }
+#netText { font-size: 14px; color: var(--muted); margin: 4px 0 0; }
 .caption {
   font-size: 17px; padding: 8px 14px;
   background: var(--bg); border: 1px solid var(--rule); border-left: 4px solid var(--line);
@@ -184,6 +187,8 @@ footer a { color: var(--line); }
       <div><span class="k">loss (cross-entropy)</span><span class="val" id="sLoss">&ndash;</span></div>
       <div><span class="k">accuracy</span><span class="val" id="sAcc">&ndash;</span></div>
     </div>
+    <div class="card"><h2>The network</h2><canvas id="net" width="640" height="320" role="img" aria-label="Diagram of the network: two inputs, the hidden units and one output"></canvas>
+      <p id="netText"></p></div>
     <div class="card"><h2>Loss by epoch</h2><canvas id="loss" width="640" height="320" role="img" aria-label="The loss after each epoch"></canvas></div>
     <div class="card"><h2>Weights</h2><pre id="weights"></pre></div>
   </section>
@@ -384,6 +389,47 @@ function drawLoss() {
   ctx.stroke();
 }
 
+function drawNet() {
+  const cv = document.getElementById("net"), ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height;
+  ctx.clearRect(0, 0, W, H);
+  const xIn = 70, xHid = W / 2, xOut = W - 110, r = 19;
+  const yIn = [H * 0.33, H * 0.67];
+  const yHid = Array.from({ length: S.H }, (_, j) => H * (j + 1) / (S.H + 1));
+  const yOut = H / 2;
+  const maxw = Math.max(1e-9, ...S.W1.flat().map(Math.abs), ...S.W2.map(Math.abs));
+  function edge(x0, y0, x1, y1, w) {
+    ctx.strokeStyle = w >= 0 ? css("--line") : css("--err");
+    ctx.lineWidth = 0.8 + 5 * Math.abs(w) / maxw;
+    ctx.beginPath(); ctx.moveTo(x0 + r, y0); ctx.lineTo(x1 - r, y1); ctx.stroke();
+  }
+  for (let j = 0; j < S.H; j++) {
+    for (let i = 0; i < 2; i++) edge(xIn, yIn[i], xHid, yHid[j], S.W1[j][i]);
+    edge(xHid, yHid[j], xOut, yOut, S.W2[j]);
+  }
+  function node(x, y, label, edgeVar) {
+    ctx.fillStyle = css("--bg"); ctx.strokeStyle = css(edgeVar); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = css("--ink"); ctx.font = "15px system-ui, sans-serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(label, x, y);
+  }
+  node(xIn, yIn[0], "x1", "--muted"); node(xIn, yIn[1], "x2", "--muted");
+  for (let j = 0; j < S.H; j++) node(xHid, yHid[j], "h" + (j + 1), "--pos");
+  node(xOut, yOut, "o", "--err");
+  ctx.fillStyle = css("--muted"); ctx.font = "14px system-ui, sans-serif"; ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText("input", xIn, H - 8); ctx.fillText(`hidden (${S.act === "relu" ? "ReLU" : "tanh"})`, xHid, H - 8);
+  ctx.fillText("output", xOut, H - 8);
+  ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillStyle = css("--ink");
+  ctx.beginPath(); ctx.strokeStyle = css("--muted"); ctx.lineWidth = 2;
+  ctx.moveTo(xOut + r, yOut); ctx.lineTo(xOut + r + 22, yOut); ctx.stroke();
+  ctx.fillText("p = σ(o)", xOut + r + 26, yOut);
+  const nW = 3 * S.H + S.H + 1;
+  document.getElementById("netText").textContent =
+    `2 inputs → ${S.H} hidden unit${S.H > 1 ? "s" : ""} h = ${S.act === "relu" ? "ReLU" : "tanh"}(W1 x + b1) → ` +
+    `one output o = w2 · h + b2, p = σ(o). ${nW} parameters. Blue edges are positive weights, red negative; thicker is larger.`;
+}
+
 function fmt(v) { return (v >= 0 ? " " : "") + v.toFixed(2); }
 
 function render() {
@@ -397,7 +443,7 @@ function render() {
   w += `output bias b2 = ${fmt(S.b2)}`;
   document.getElementById("weights").textContent = w;
   document.getElementById("caption").innerHTML = caption(loss, acc);
-  drawPlane(); drawLoss();
+  drawPlane(); drawLoss(); drawNet();
 }
 
 function caption(loss, acc) {

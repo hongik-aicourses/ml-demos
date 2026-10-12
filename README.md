@@ -10,6 +10,12 @@ Published with GitHub Pages at <https://hongik-aicourses.github.io/ml-demos/>.
 | 4, Hour 1 | Linear regression with gradient descent, line by line | [week04-gradient-descent/](https://hongik-aicourses.github.io/ml-demos/week04-gradient-descent/) |
 | 4, Hour 2 | Logistic regression with gradient descent, line by line | [week04-logistic-regression/](https://hongik-aicourses.github.io/ml-demos/week04-logistic-regression/) |
 | 4, Hour 3 | Evaluating a classifier: the threshold, the confusion matrix, precision, recall and the ROC curve | [week04-evaluation/](https://hongik-aicourses.github.io/ml-demos/week04-evaluation/) |
+| 5, Hour 1 | Softmax regression | [week05-softmax/](https://hongik-aicourses.github.io/ml-demos/week05-softmax/) |
+| 5, Hour 2 | Entropy, cross-entropy and KL | [week05-losses/](https://hongik-aicourses.github.io/ml-demos/week05-losses/) |
+| 5, Hour 3 | The multilayer perceptron | [week05-mlp/](https://hongik-aicourses.github.io/ml-demos/week05-mlp/) |
+| 5, make-up hour | Backpropagation | [week05-backprop/](https://hongik-aicourses.github.io/ml-demos/week05-backprop/) |
+| 6, Hour 3 | Training a deep network: the starting weights, the activation and the scale of the inputs | [week06-training/](https://hongik-aicourses.github.io/ml-demos/week06-training/) |
+| later | Regularization: weight decay and L1 on a polynomial | [week06-regularization/](https://hongik-aicourses.github.io/ml-demos/week06-regularization/) |
 | later | Naive Bayes spam filter, clue by clue | [naive-bayes/](https://hongik-aicourses.github.io/ml-demos/naive-bayes/) |
 
 ## Where the files come from

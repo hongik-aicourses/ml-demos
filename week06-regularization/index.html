@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weight Decay on a Polynomial</title>
+<meta name="description" content="Demo: a polynomial fitted to a small training set, with a penalty on the weights (weight decay or L1), its training and test errors, and its weights.">
+<!--
+  (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
+  licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
+  Commercial use, closed-source use, or any other licensing: by permission,
+  jangkj@hongik.ac.kr.
+
+  Demo --- regularization (after d2l.ai 3.6 and 3.7).
+  Data: f(x) = 0.5 + x - 2.5 x^2 + 2 x^3 plus Gaussian noise of standard deviation 0.25,
+  x uniform on [-1, 1]; n training points and 500 test points, drawn by a seeded generator.
+  Model: y_hat = w0 + w1 x + ... + wd x^d. The fit minimizes
+      (1 / (2n)) sum (y_hat - y)^2 + (lambda / 2) ||w||^2      (L2, weight decay / ridge)
+  or  (1 / (2n)) sum (y_hat - y)^2 + lambda ||w||_1           (L1, lasso),
+  with the bias w0 not penalized. L2 is solved exactly (least squares on the data rows plus
+  sqrt(n lambda) rows, by Householder QR); lambda = 0 is computed as 1e-10 so that a fit exists
+  when the degree is n - 1 or more. L1 is solved by accelerated proximal gradient (FISTA).
+  The numbers differ from the slides, which draw their data with NumPy.
+  One self-contained file: no server, no network, no libraries.
+
+  Keys: N = new training set, R = reset, Up/Down = degree, Left/Right = lambda.
+-->
+<style>
+:root {
+  --bg: #ffffff; --panel: #f4f5f7; --ink: #1a1a1a; --muted: #5b6068; --rule: #d9dce1;
+  --grid: #eceef1; --line: #2f6fbf; --err: #c00000; --pos: #1e8e5a; --crease: #1e8e5a;
+  --fill1: rgba(192, 0, 0, 0.16); --fill0: rgba(47, 111, 191, 0.14);
+  --btn: #ffffff; --btn-ink: #1a1a1a; --btn-edge: #b9bec6;
+  --btn-primary: #2f6fbf; --btn-primary-ink: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+    --grid: #222931; --line: #6ea8ff; --err: #ff6b6b; --pos: #4fcf8e; --crease: #4fcf8e;
+    --fill1: rgba(255, 107, 107, 0.20); --fill0: rgba(110, 168, 255, 0.17);
+    --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d;
+    --btn-primary: #4a86d8; --btn-primary-ink: #0b0e12;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+  --grid: #222931; --line: #6ea8ff; --err: #ff6b6b; --pos: #4fcf8e; --crease: #4fcf8e;
+  --fill1: rgba(255, 107, 107, 0.20); --fill0: rgba(110, 168, 255, 0.17);
+  --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d;
+  --btn-primary: #4a86d8; --btn-primary-ink: #0b0e12;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+}
+header {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px;
+  padding: 10px 20px 6px; border-bottom: 1px solid var(--rule);
+}
+header h1 { font-size: 22px; margin: 0; font-weight: 650; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); font-size: 14px; }
+.controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 8px 20px; border-bottom: 1px solid var(--rule); background: var(--panel);
+}
+.controls .group { display: flex; align-items: center; gap: 6px; }
+.controls .sep { width: 1px; align-self: stretch; background: var(--rule); margin: 0 4px; }
+label { font-size: 14px; color: var(--muted); }
+select, button { font: inherit; font-size: 15px; }
+select {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 8px;
+}
+button {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
+}
+button.primary { background: var(--btn-primary); color: var(--btn-primary-ink); border-color: var(--btn-primary); }
+button:hover { filter: brightness(0.97); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--line); outline-offset: 2px; }
+kbd {
+  font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; color: inherit; opacity: 0.75;
+  border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; margin-left: 4px;
+}
+main {
+  display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 12px; padding: 10px 20px 12px;
+}
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+@media (max-width: 1440px) { kbd { display: none; } }
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+.card h2 { font-size: 15px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.right { display: grid; gap: 10px; align-content: start; min-width: 0; }
+canvas { display: block; width: 100%; }
+#plane { aspect-ratio: 4 / 3; max-height: calc(100vh - 210px); max-width: 100%; margin: 0 auto; }
+#deg, #lam { aspect-ratio: 640 / 290; }
+#wts { aspect-ratio: 1280 / 290; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 1200px) { .two { grid-template-columns: 1fr; } }
+.note { font-size: 13px; color: var(--muted); margin: 4px 0 0; }
+.caption {
+  font-size: 17px; padding: 8px 14px;
+  background: var(--bg); border: 1px solid var(--rule); border-left: 4px solid var(--line);
+  border-radius: 8px;
+}
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; font-variant-numeric: tabular-nums; }
+.stats div { background: var(--bg); border: 1px solid var(--rule); border-radius: 8px; padding: 4px 8px; }
+.stats .k { display: block; font-size: 12.5px; color: var(--muted); }
+.stats .val { font: 600 19px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.legend { font-size: 13.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; }
+.legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 5px; vertical-align: -1px; border-radius: 2px; }
+.legend .l1::before { background: var(--fill1); border: 1px solid var(--err); }
+.legend .l0::before { background: var(--fill0); border: 1px solid var(--line); }
+.legend .lc::before { height: 0; border-top: 2px dashed var(--muted); border-radius: 0; vertical-align: 3px; }
+.legend .lf::before { height: 0; border-top: 3px solid var(--line); border-radius: 0; vertical-align: 3px; }
+.legend .lt::before { background: var(--err); border-radius: 50%; }
+.legend .ls::before { background: var(--fill0); border: 1px solid var(--line); border-radius: 50%; }
+#weights { font: 14px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; white-space: pre; overflow-x: auto; margin: 0; }
+footer {
+  padding: 4px 20px 6px; border-top: 1px solid var(--rule); background: var(--panel);
+  font-size: 12.5px; color: var(--muted);
+}
+footer a { color: var(--line); }
+@media (min-width: 1800px) and (min-height: 1000px) {
+  body { font-size: 18px; }
+  header h1 { font-size: 26px; }
+  select, button { font-size: 17px; }
+  .caption { font-size: 20px; }
+  #weights { font-size: 17px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Weight decay on a polynomial</h1>
+  <p>Regularization &middot; training and test error as the degree, the penalty and the amount of data change</p>
+</header>
+
+<div class="controls" role="toolbar" aria-label="Demo controls">
+  <div class="group">
+    <label for="degree">Degree</label>
+    <select id="degree"></select>
+  </div>
+  <div class="group">
+    <label for="lambda">&lambda;</label>
+    <select id="lambda"></select>
+  </div>
+  <div class="group">
+    <label for="pen">Penalty</label>
+    <select id="pen">
+      <option value="l2" selected>L2 (weight decay)</option>
+      <option value="l1">L1</option>
+    </select>
+  </div>
+  <div class="group">
+    <label for="ntrain">Training points</label>
+    <select id="ntrain">
+      <option>10</option><option selected>15</option><option>30</option><option>100</option>
+    </select>
+  </div>
+  <span class="sep" aria-hidden="true"></span>
+  <div class="group">
+    <button id="bNew" class="primary">New training set<kbd>N</kbd></button>
+    <button id="bReset">Reset<kbd>R</kbd></button>
+  </div>
+</div>
+
+<main>
+  <section class="card">
+    <canvas id="plane" width="800" height="600" role="img" aria-label="The training points, the true function and the fitted polynomial"></canvas>
+    <div class="legend"><span class="lt">training points</span><span class="ls">test points (100 of 500 shown)</span><span class="lc">true function f(x)</span><span class="lf">fitted polynomial</span></div>
+  </section>
+  <section class="right">
+    <div class="caption" id="caption" aria-live="polite"></div>
+    <div class="stats">
+      <div><span class="k">training error</span><span class="val" id="sTrain">&ndash;</span></div>
+      <div><span class="k">test error</span><span class="val" id="sTest">&ndash;</span></div>
+      <div><span class="k">&#8214;w&#8214;&#8322; (without w&#8320;)</span><span class="val" id="sNorm">&ndash;</span></div>
+      <div><span class="k">weights exactly 0</span><span class="val" id="sZero">&ndash;</span></div>
+    </div>
+    <div class="two">
+      <div class="card"><h2>Error against the degree (this &lambda;)</h2><canvas id="deg" width="640" height="290" role="img" aria-label="Training and test error for each degree"></canvas></div>
+      <div class="card"><h2>Error against &lambda; (this degree)</h2><canvas id="lam" width="640" height="290" role="img" aria-label="Training and test error for each value of lambda"></canvas></div>
+    </div>
+    <p class="note">Mean squared errors on a log scale. Blue: training error; red: test error. The marked point is the current setting.</p>
+    <div class="card"><h2>Weights w&#8321; &hellip; w<sub>d</sub></h2><canvas id="wts" width="1280" height="290" role="img" aria-label="Bar chart of the weights"></canvas></div>
+  </section>
+</main>
+
+<footer>
+  &copy; 2026 Kuk Jin Jang, Hongik University &middot;
+  <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>; commercial or
+  closed-source use by permission (<a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>) &middot;
+  after Zhang, Lipton, Li &amp; Smola, <a href="https://d2l.ai/chapter_linear-regression/weight-decay.html">Dive into Deep Learning, &sect;3.6&ndash;3.7</a>
+</footer>
+
+<script>
+"use strict";
+// ---- random numbers -------------------------------------------------------------------------
+function rng(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function gauss(r) {
+  const u = Math.max(r(), 1e-12), v = r();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+// ---- data -----------------------------------------------------------------------------------
+const SIG = 0.25, MAXDEG = 12;
+const f = (x) => 0.5 + x - 2.5 * x * x + 2 * x * x * x;
+function draw(n, seed) {
+  const r = rng(seed), xs = [], ys = [];
+  for (let i = 0; i < n; i++) { const x = 2 * r() - 1; xs.push(x); ys.push(f(x) + SIG * gauss(r)); }
+  return { xs, ys };
+}
+const TEST = draw(500, 99);
+const LAMBDAS = [0, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 0.1, 1, 10];
+const S = { seed: 1, deg: 9, lam: 0, pen: "l2", n: 15 };
+
+// ---- fitting --------------------------------------------------------------------------------
+function powers(x, d) { const p = [1]; for (let k = 1; k <= d; k++) p.push(p[k - 1] * x); return p; }
+function predict(w, x) { let s = 0, p = 1; for (let k = 0; k < w.length; k++) { s += w[k] * p; p *= x; } return s; }
+function mse(w, D) { let s = 0; for (let i = 0; i < D.xs.length; i++) { const e = predict(w, D.xs[i]) - D.ys[i]; s += e * e; } return s / D.xs.length; }
+
+// least squares by Householder QR: minimize ||A w - b||
+function lstsq(A, b) {
+  const m = A.length, p = A[0].length, R = A.map((r) => r.slice()), y = b.slice();
+  for (let k = 0; k < p; k++) {
+    let nrm = 0; for (let i = k; i < m; i++) nrm += R[i][k] * R[i][k];
+    nrm = Math.sqrt(nrm); if (nrm === 0) continue;
+    const alpha = R[k][k] > 0 ? -nrm : nrm, v = new Array(m).fill(0);
+    for (let i = k; i < m; i++) v[i] = R[i][k]; v[k] -= alpha;
+    let vv = 0; for (let i = k; i < m; i++) vv += v[i] * v[i]; if (vv === 0) continue;
+    for (let j = k; j < p; j++) {
+      let s = 0; for (let i = k; i < m; i++) s += v[i] * R[i][j]; s = 2 * s / vv;
+      for (let i = k; i < m; i++) R[i][j] -= s * v[i];
+    }
+    let s = 0; for (let i = k; i < m; i++) s += v[i] * y[i]; s = 2 * s / vv;
+    for (let i = k; i < m; i++) y[i] -= s * v[i];
+  }
+  const w = new Array(p).fill(0);
+  for (let k = p - 1; k >= 0; k--) {
+    let s = y[k]; for (let j = k + 1; j < p; j++) s -= R[k][j] * w[j];
+    w[k] = Math.abs(R[k][k]) > 1e-300 ? s / R[k][k] : 0;
+  }
+  return w;
+}
+function fitL2(D, d, lam) {
+  const n = D.xs.length, A = [], b = [], l = Math.max(lam, 1e-10), c = Math.sqrt(n * l);
+  for (let i = 0; i < n; i++) { A.push(powers(D.xs[i], d)); b.push(D.ys[i]); }
+  for (let k = 1; k <= d; k++) { const r = new Array(d + 1).fill(0); r[k] = c; A.push(r); b.push(0); }
+  return lstsq(A, b);
+}
+function fitL1(D, d, lam, iters) {
+  const n = D.xs.length, X = D.xs.map((x) => powers(x, d)), p = d + 1;
+  // step 1/L with L the largest eigenvalue of X^T X / n (power iteration)
+  const G = []; for (let a = 0; a < p; a++) { G.push(new Array(p).fill(0)); }
+  for (const r of X) for (let a = 0; a < p; a++) for (let c = 0; c < p; c++) G[a][c] += r[a] * r[c] / n;
+  let v = new Array(p).fill(1), L = 1;
+  for (let it = 0; it < 60; it++) {
+    const u = G.map((row) => row.reduce((s, g, j) => s + g * v[j], 0));
+    L = Math.sqrt(u.reduce((s, z) => s + z * z, 0)); v = u.map((z) => z / L);
+  }
+  const Xty = new Array(p).fill(0);
+  for (let i = 0; i < n; i++) for (let a = 0; a < p; a++) Xty[a] += X[i][a] * D.ys[i] / n;
+  const t = 1 / L;
+  let w = fitL2(D, d, 1e-4), z = w.slice(), tk = 1;
+  for (let it = 0; it < iters; it++) {
+    const g = G.map((row, a) => row.reduce((s, gg, j) => s + gg * z[j], 0) - Xty[a]);
+    const wn = z.map((zz, a) => {
+      const q = zz - t * g[a];
+      return a === 0 ? q : Math.sign(q) * Math.max(Math.abs(q) - t * lam, 0);
+    });
+    const tn = (1 + Math.sqrt(1 + 4 * tk * tk)) / 2;
+    z = wn.map((x, a) => x + ((tk - 1) / tn) * (x - w[a]));
+    w = wn; tk = tn;
+  }
+  return w;
+}
+function fit(D, d, lam, quick) {
+  if (S.pen === "l1" && lam > 0) return fitL1(D, d, lam, quick ? 3000 : 20000);
+  return fitL2(D, d, lam);
+}
+
+// ---- drawing --------------------------------------------------------------------------------
+function plotCurve(ctx, W, H, xmap, ymap, fn, color, width, dash) {
+  ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash || []);
+  ctx.beginPath();
+  for (let i = 0; i <= 400; i++) {
+    const x = -1 + 2 * i / 400, y = fn(x), py = Math.max(-50, Math.min(H + 50, ymap(y)));
+    i ? ctx.lineTo(xmap(x), py) : ctx.moveTo(xmap(x), py);
+  }
+  ctx.stroke(); ctx.setLineDash([]);
+}
+function drawPlane(w) {
+  const cv = document.getElementById("plane"), ctx = cv.getContext("2d"), W = cv.width, H = cv.height;
+  const ylo = -5.5, yhi = 2.5, pad = 46;
+  const X = (x) => pad + (x + 1) / 2 * (W - pad - 12), Y = (y) => 10 + (yhi - y) / (yhi - ylo) * (H - pad - 10);
+  ctx.fillStyle = css("--bg"); ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = css("--grid"); ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(X(0), 10); ctx.lineTo(X(0), H - pad); ctx.moveTo(pad, Y(0)); ctx.lineTo(W - 12, Y(0)); ctx.stroke();
+  ctx.fillStyle = css("--muted"); ctx.font = "20px system-ui, sans-serif";
+  for (const t of [-1, -0.5, 0, 0.5, 1]) ctx.fillText(String(t), X(t) - 10, H - pad + 26);
+  for (const t of [-4, -2, 0, 2]) ctx.fillText(String(t), 6, Y(t) + 7);
+  ctx.save(); ctx.beginPath(); ctx.rect(pad, 10, W - pad - 12, H - pad - 10); ctx.clip();
+  ctx.fillStyle = css("--fill0"); ctx.strokeStyle = css("--line"); ctx.lineWidth = 1;
+  for (let i = 0; i < 100; i++) { ctx.beginPath(); ctx.arc(X(TEST.xs[i]), Y(TEST.ys[i]), 4, 0, 2 * Math.PI); ctx.fill(); ctx.stroke(); }
+  plotCurve(ctx, W, H, X, Y, f, css("--muted"), 2, [9, 6]);
+  plotCurve(ctx, W, H, X, Y, (x) => predict(w, x), css("--line"), 3.5);
+  ctx.fillStyle = css("--err");
+  for (let i = 0; i < S.D.xs.length; i++) { ctx.beginPath(); ctx.arc(X(S.D.xs[i]), Y(S.D.ys[i]), 7, 0, 2 * Math.PI); ctx.fill(); }
+  ctx.restore();
+}
+function errChart(id, labels, tr, te, cur) {
+  const cv = document.getElementById(id), ctx = cv.getContext("2d"), W = cv.width, H = cv.height;
+  const pad = 54, lo = -2, hi = 2;  // log10 of the error, clipped to [0.01, 100]
+  const lg = (v) => Math.max(lo, Math.min(hi, Math.log10(Math.max(v, 1e-12))));
+  const X = (i) => pad + i / (labels.length - 1) * (W - pad - 14), Y = (v) => 8 + (hi - lg(v)) / (hi - lo) * (H - pad - 8);
+  ctx.fillStyle = css("--bg"); ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = css("--grid"); ctx.lineWidth = 1; ctx.fillStyle = css("--muted"); ctx.font = "18px system-ui, sans-serif";
+  for (let e = lo; e <= hi; e++) {
+    ctx.beginPath(); ctx.moveTo(pad, Y(10 ** e)); ctx.lineTo(W - 14, Y(10 ** e)); ctx.stroke();
+    ctx.fillText(e === 0 ? "1" : "1e" + e, 4, Y(10 ** e) + 6);
+  }
+  labels.forEach((l, i) => { if (labels.length < 14 || i % 2 === 0) ctx.fillText(l, X(i) - 10, H - pad + 24); });
+  for (const [vals, col] of [[tr, css("--line")], [te, css("--err")]]) {
+    ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.beginPath();
+    vals.forEach((v, i) => (i ? ctx.lineTo(X(i), Y(v)) : ctx.moveTo(X(i), Y(v)))); ctx.stroke();
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(X(cur), Y(vals[cur]), 7, 0, 2 * Math.PI); ctx.fill();
+  }
+}
+function drawWeights(w) {
+  const cv = document.getElementById("wts"), ctx = cv.getContext("2d"), W = cv.width, H = cv.height;
+  ctx.fillStyle = css("--bg"); ctx.fillRect(0, 0, W, H);
+  const k = w.length - 1, mid = H / 2, pad = 20;
+  if (k === 0) { ctx.fillStyle = css("--muted"); ctx.font = "22px system-ui, sans-serif"; ctx.fillText("degree 0: only the bias w0", 20, mid); return; }
+  const top = Math.max(1, ...w.slice(1).map(Math.abs)), bw = (W - 2 * pad) / k;
+  ctx.strokeStyle = css("--rule"); ctx.beginPath(); ctx.moveTo(pad, mid); ctx.lineTo(W - pad, mid); ctx.stroke();
+  ctx.font = "20px system-ui, sans-serif";
+  for (let j = 1; j <= k; j++) {
+    const v = w[j], h = v / top * (mid - 30), x = pad + (j - 1) * bw + bw * 0.2;
+    ctx.fillStyle = css("--line"); ctx.fillRect(x, v > 0 ? mid - h : mid, bw * 0.6, Math.abs(h));
+    ctx.fillStyle = css("--muted");
+    ctx.fillText(v === 0 ? "0" : (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(2)), x, v >= 0 ? mid + 22 : mid - 8);
+    ctx.fillText("w" + j, x + bw * 0.15, H - 6);
+  }
+  ctx.fillText("scale: largest |w| = " + top.toFixed(top >= 100 ? 0 : 2), W - 300, 22);
+}
+
+function caption(tr, te, nrm, zeros) {
+  const d = S.deg, n = S.D.xs.length;
+  if (d <= 1) return `Degree ${d} cannot follow the cubic: the training error (${tr.toFixed(3)}) and the test error (${te.toFixed(3)}) are both large. This is <b>underfitting</b>.`;
+  if (S.lam === 0 && d + 1 >= n) return `With ${d + 1} weights and ${n} points the curve can pass through every training point: the training error is ${tr.toFixed(3)}, but the test error is ${te.toFixed(3)}. Raise &lambda;.`;
+  if (S.lam >= 1) return `&lambda; = ${S.lam} dominates the loss: the weights are pulled toward 0 (length ${nrm.toFixed(2)}) and the curve no longer follows the data. A large &lambda; underfits.`;
+  if (S.pen === "l1" && zeros > 0) return `The L1 penalty has set ${zeros} of the ${d} weights exactly to 0; the test error is ${te.toFixed(3)}.`;
+  if (te > 2 * tr && te - tr > 0.05) return `The test error (${te.toFixed(3)}) is much higher than the training error (${tr.toFixed(3)}): <b>overfitting</b>. Raise &lambda;, lower the degree, or add training points.`;
+  return `Training error ${tr.toFixed(3)}, test error ${te.toFixed(3)}; the noise variance, which no model can remove, is 0.0625.`;
+}
+
+function render() {
+  const w = fit(S.D, S.deg, S.lam, false);
+  const tr = mse(w, S.D), te = mse(w, TEST);
+  let nrm = 0; for (let k = 1; k < w.length; k++) nrm += w[k] * w[k]; nrm = Math.sqrt(nrm);
+  const zeros = w.slice(1).filter((v) => v === 0).length;
+  document.getElementById("sTrain").textContent = tr.toFixed(3);
+  document.getElementById("sTest").textContent = te >= 1000 ? te.toExponential(1) : te.toFixed(3);
+  document.getElementById("sNorm").textContent = nrm >= 1000 ? nrm.toExponential(1) : nrm.toFixed(2);
+  document.getElementById("sZero").textContent = S.pen === "l1" ? `${zeros} of ${S.deg}` : "\u2013";
+  document.getElementById("caption").innerHTML = caption(tr, te, nrm, zeros);
+  drawPlane(w); drawWeights(w);
+  const dtr = [], dte = [];
+  for (let d = 0; d <= MAXDEG; d++) { const v = fit(S.D, d, S.lam, true); dtr.push(mse(v, S.D)); dte.push(mse(v, TEST)); }
+  errChart("deg", [...Array(MAXDEG + 1).keys()].map(String), dtr, dte, S.deg);
+  const ltr = [], lte = [];
+  for (const l of LAMBDAS) { const v = fit(S.D, S.deg, l, true); ltr.push(mse(v, S.D)); lte.push(mse(v, TEST)); }
+  errChart("lam", LAMBDAS.map((l) => (l === 0 ? "0" : l >= 1 ? String(l) : "1e" + Math.round(Math.log10(l)))), ltr, lte, LAMBDAS.indexOf(S.lam));
+}
+
+// ---- controls -------------------------------------------------------------------------------
+const selDeg = document.getElementById("degree"), selLam = document.getElementById("lambda");
+for (let d = 0; d <= MAXDEG; d++) selDeg.add(new Option(String(d), String(d), d === S.deg, d === S.deg));
+for (const l of LAMBDAS) selLam.add(new Option(l === 0 ? "0" : String(l), String(l), l === S.lam, l === S.lam));
+function newData() { S.D = draw(S.n, S.seed); render(); }
+selDeg.onchange = () => { S.deg = +selDeg.value; render(); };
+selLam.onchange = () => { S.lam = +selLam.value; render(); };
+document.getElementById("pen").onchange = (e) => { S.pen = e.target.value; render(); };
+document.getElementById("ntrain").onchange = (e) => { S.n = +e.target.value; newData(); };
+document.getElementById("bNew").onclick = () => { S.seed++; newData(); };
+document.getElementById("bReset").onclick = () => {
+  Object.assign(S, { seed: 1, deg: 9, lam: 0, pen: "l2", n: 15 });
+  selDeg.value = "9"; selLam.value = "0"; document.getElementById("pen").value = "l2"; document.getElementById("ntrain").value = "15";
+  newData();
+};
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "SELECT") return;
+  if (e.key === "n" || e.key === "N") document.getElementById("bNew").click();
+  else if (e.key === "r" || e.key === "R") document.getElementById("bReset").click();
+  else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+    e.preventDefault(); S.deg = Math.max(0, Math.min(MAXDEG, S.deg + (e.key === "ArrowUp" ? 1 : -1))); selDeg.value = String(S.deg); render();
+  } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+    const i = Math.max(0, Math.min(LAMBDAS.length - 1, LAMBDAS.indexOf(S.lam) + (e.key === "ArrowRight" ? 1 : -1)));
+    S.lam = LAMBDAS[i]; selLam.value = String(S.lam); render();
+  }
+});
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+newData();
+</script>
+</body>
+</html>

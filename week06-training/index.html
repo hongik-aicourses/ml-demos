@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Training a deep MLP</title>
+<meta name="description" content="Week 6, Hour 3 demo: the starting weights, the activation and the scale of the inputs in a ten-layer MLP; the learning rate and the minibatch size in gradient descent.">
+<!--
+  (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
+  licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
+  Commercial use, closed-source use, or any other licensing: by permission,
+  jangkj@hongik.ac.kr.
+
+  Week 6, Hour 3 demo --- training an MLP in practice (after d2l.ai 5.4 and 12.3-12.5).
+  Part 1, Deep network: ten layers of 100 units, h_l = phi(h_{l-1} W_l), biases 0, on 256 random
+  inputs (standardized, or raw with mean 100 and sd 20). The weights are N(0, sigma^2) with
+  sigma = 0.01, Xavier sqrt(2/(n_in + n_out)) = 0.1, He sqrt(2/n_in) = 0.141 or 1. The page
+  plots the standard deviation of the activations of each layer, and of the gradient reaching
+  each layer when a gradient with standard deviation 1 is passed back from the top.
+  Part 2, Learning rate and minibatches: linear regression on 256 examples with two centered
+  features (feature 1 standardized or with sd 3), minibatch SGD with eta, b and an optional
+  schedule eta_t = eta / (1 + t/50); the contour lines of the loss and the path of the weights.
+  One self-contained file: no server, no network, no libraries.
+
+  Keys: part 1: N = new random weights. Part 2: S or Right arrow = one step, Space = play / pause,
+        R = reset.
+-->
+<style>
+:root {
+  --bg: #ffffff; --panel: #f4f5f7; --ink: #1a1a1a; --muted: #5b6068; --rule: #d9dce1;
+  --grid: #eceef1; --line: #2f6fbf; --err: #c00000; --pos: #1e8e5a; --crease: #1e8e5a;
+  --fill1: rgba(192, 0, 0, 0.16); --fill0: rgba(47, 111, 191, 0.14);
+  --btn: #ffffff; --btn-ink: #1a1a1a; --btn-edge: #b9bec6;
+  --btn-primary: #2f6fbf; --btn-primary-ink: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+    --grid: #222931; --line: #6ea8ff; --err: #ff6b6b; --pos: #4fcf8e; --crease: #4fcf8e;
+    --fill1: rgba(255, 107, 107, 0.20); --fill0: rgba(110, 168, 255, 0.17);
+    --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d;
+    --btn-primary: #4a86d8; --btn-primary-ink: #0b0e12;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+  --grid: #222931; --line: #6ea8ff; --err: #ff6b6b; --pos: #4fcf8e; --crease: #4fcf8e;
+  --fill1: rgba(255, 107, 107, 0.20); --fill0: rgba(110, 168, 255, 0.17);
+  --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d;
+  --btn-primary: #4a86d8; --btn-primary-ink: #0b0e12;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+}
+header {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px;
+  padding: 10px 20px 6px; border-bottom: 1px solid var(--rule);
+}
+header h1 { font-size: 22px; margin: 0; font-weight: 650; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); font-size: 14px; }
+.controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 8px 20px; border-bottom: 1px solid var(--rule); background: var(--panel);
+}
+.controls .group { display: flex; align-items: center; gap: 6px; }
+.controls .sep { width: 1px; align-self: stretch; background: var(--rule); margin: 0 4px; }
+label { font-size: 14px; color: var(--muted); }
+select, button { font: inherit; font-size: 15px; }
+select {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 8px;
+}
+button {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
+}
+button.primary { background: var(--btn-primary); color: var(--btn-primary-ink); border-color: var(--btn-primary); }
+button:hover { filter: brightness(0.97); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--line); outline-offset: 2px; }
+kbd {
+  font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; color: inherit; opacity: 0.75;
+  border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; margin-left: 4px;
+}
+main {
+  display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 12px; padding: 10px 20px 12px;
+}
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+@media (max-width: 1440px) { kbd { display: none; } }
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+.card h2 { font-size: 15px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.right { display: grid; gap: 10px; align-content: start; min-width: 0; }
+canvas { display: block; width: 100%; }
+#plane { aspect-ratio: 1 / 1; max-height: calc(100vh - 210px); max-width: 100%; margin: 0 auto; }
+#loss { aspect-ratio: 2 / 1; }
+#net { aspect-ratio: 2 / 1; }
+#netText { font-size: 14px; color: var(--muted); margin: 4px 0 0; }
+.caption {
+  font-size: 17px; padding: 8px 14px;
+  background: var(--bg); border: 1px solid var(--rule); border-left: 4px solid var(--line);
+  border-radius: 8px;
+}
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; font-variant-numeric: tabular-nums; }
+.stats div { background: var(--bg); border: 1px solid var(--rule); border-radius: 8px; padding: 4px 8px; }
+.stats .k { display: block; font-size: 12.5px; color: var(--muted); }
+.stats .val { font: 600 19px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.legend { font-size: 13.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; }
+.legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 5px; vertical-align: -1px; border-radius: 2px; }
+.legend .l1::before { background: var(--fill1); border: 1px solid var(--err); }
+.legend .l0::before { background: var(--fill0); border: 1px solid var(--line); }
+.legend .lc::before { height: 0; border-top: 2px dashed var(--crease); border-radius: 0; vertical-align: 3px; }
+#weights { font: 14px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; white-space: pre; overflow-x: auto; margin: 0; }
+footer {
+  padding: 4px 20px 6px; border-top: 1px solid var(--rule); background: var(--panel);
+  font-size: 12.5px; color: var(--muted);
+}
+footer a { color: var(--line); }
+@media (min-width: 1800px) and (min-height: 1000px) {
+  body { font-size: 18px; }
+  header h1 { font-size: 26px; }
+  select, button { font-size: 17px; }
+  .caption { font-size: 20px; }
+  #weights { font-size: 17px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+.note { font-size: 14.5px; color: var(--muted); margin: 0; }
+ul.note { padding-left: 18px; }
+#table { font: 14px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace; white-space: pre; overflow-x: auto; margin: 8px 0 0; }
+#cAct, #cGrad, #cLoss { aspect-ratio: 2 / 1; }
+#cPath { aspect-ratio: 1 / 1; max-height: calc(100vh - 230px); max-width: 100%; margin: 0 auto; }
+[hidden] { display: none !important; }
+main { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Training a deep MLP</h1>
+  <p>Week 6, Hour 3 &middot; the starting weights, the activation and the scale of the inputs; the learning rate and the minibatch size</p>
+</header>
+
+<div class="controls" role="tablist" aria-label="Part of the demo">
+  <div class="group">
+    <button id="tabDeep" class="primary" role="tab" aria-selected="true">Deep network</button>
+    <button id="tabLr" role="tab" aria-selected="false">Learning rate and minibatches</button>
+  </div>
+</div>
+
+<!-- ======================= part 1: a deep network ======================= -->
+<div id="partDeep">
+<div class="controls" role="toolbar" aria-label="Deep network controls">
+  <div class="group">
+    <label for="act">Activation</label>
+    <select id="act">
+      <option value="sigmoid">sigmoid</option>
+      <option value="tanh" selected>tanh</option>
+      <option value="relu">ReLU</option>
+      <option value="linear">none (linear)</option>
+    </select>
+  </div>
+  <div class="group">
+    <label for="init">Initial weights</label>
+    <select id="init">
+      <option value="0.01">N(0, 0.01&sup2;): too small</option>
+      <option value="xavier" selected>Xavier: &sigma;&sup2; = 2/(n_in + n_out)</option>
+      <option value="he">He: &sigma;&sup2; = 2/n_in</option>
+      <option value="1">N(0, 1): too large</option>
+    </select>
+  </div>
+  <div class="group">
+    <label for="inputs">Inputs</label>
+    <select id="inputs">
+      <option value="std" selected>standardized (mean 0, sd 1)</option>
+      <option value="raw">raw (mean 100, sd 20)</option>
+    </select>
+  </div>
+  <span class="sep" aria-hidden="true"></span>
+  <div class="group"><button id="bDraw">New random weights<kbd>N</kbd></button></div>
+</div>
+<main>
+  <section class="right">
+    <div class="card"><h2>Standard deviation of the activations in each layer (log scale)</h2>
+      <canvas id="cAct" width="760" height="380" role="img" aria-label="Standard deviation of the activations per layer"></canvas></div>
+    <div class="card"><h2>Standard deviation of the gradient reaching each layer (log scale)</h2>
+      <canvas id="cGrad" width="760" height="380" role="img" aria-label="Standard deviation of the gradient per layer"></canvas></div>
+  </section>
+  <section class="right">
+    <div class="caption" id="capDeep" aria-live="polite"></div>
+    <div class="stats">
+      <div><span class="k">&sigma; of the weights</span><span class="val" id="sSigma">&ndash;</span></div>
+      <div><span class="k">activations: layer 1 &rarr; 10</span><span class="val" id="sAct">&ndash;</span></div>
+      <div><span class="k">gradient: layer 10 &rarr; 1</span><span class="val" id="sGrad">&ndash;</span></div>
+    </div>
+    <div class="card"><h2>The network</h2>
+      <p class="note">Ten layers of 100 units, h<sub>l</sub> = &phi;(h<sub>l&minus;1</sub> W<sub>l</sub>), with biases 0, on a minibatch of 256 random inputs.
+      The backward pass starts from a gradient with standard deviation 1 at the top and multiplies it, layer by layer, by &phi;&prime; and by W<sub>l</sub><sup>&#8868;</sup>, as in backpropagation.
+      Saturated units are units whose input z lies where &phi;&prime;(z) &lt; 0.01.</p>
+      <pre id="table"></pre></div>
+    <div class="card"><h2>Things to try</h2>
+      <ul class="note">
+        <li>tanh with N(0, 0.01&sup2;), then N(0, 1), then Xavier.</li>
+        <li>sigmoid with Xavier: the activations do not have mean 0, and the gradient shrinks by about 4 per layer.</li>
+        <li>ReLU with Xavier, then He.</li>
+        <li>tanh with Xavier and raw inputs: the first layer saturates.</li>
+      </ul></div>
+  </section>
+</main>
+</div>
+
+<!-- ======================= part 2: learning rate and minibatches ======================= -->
+<div id="partLr" hidden>
+<div class="controls" role="toolbar" aria-label="Learning rate controls">
+  <div class="group">
+    <label for="lr">&eta;</label>
+    <select id="lr">
+      <option>0.01</option><option>0.05</option><option selected>0.1</option><option>0.3</option>
+      <option>0.5</option><option>0.9</option><option>1.1</option>
+    </select>
+  </div>
+  <div class="group">
+    <label for="bs">Minibatch size b</label>
+    <select id="bs">
+      <option>1</option><option>8</option><option selected>32</option><option value="256">256 (full batch)</option>
+    </select>
+  </div>
+  <div class="group">
+    <label for="feat">Feature 1</label>
+    <select id="feat">
+      <option value="1" selected>standardized (sd 1)</option>
+      <option value="3">not standardized (sd 3)</option>
+    </select>
+  </div>
+  <div class="group">
+    <label for="sched">Schedule</label>
+    <select id="sched">
+      <option value="const" selected>constant &eta;</option>
+      <option value="decay">&eta;<sub>t</sub> = &eta; / (1 + t/50)</option>
+    </select>
+  </div>
+  <span class="sep" aria-hidden="true"></span>
+  <div class="group">
+    <button id="bStep">Step<kbd>S</kbd></button>
+    <button id="bPlay" class="primary">Play<kbd>Space</kbd></button>
+    <button id="bReset">Reset<kbd>R</kbd></button>
+  </div>
+</div>
+<main>
+  <section class="card">
+    <h2>The loss over the two weights, and the path of gradient descent</h2>
+    <canvas id="cPath" width="720" height="720" role="img" aria-label="Contour lines of the loss and the path of the weights"></canvas>
+  </section>
+  <section class="right">
+    <div class="caption" id="capLr" aria-live="polite"></div>
+    <div class="stats">
+      <div><span class="k">update</span><span class="val" id="sT">0</span></div>
+      <div><span class="k">epoch</span><span class="val" id="sEp">0</span></div>
+      <div><span class="k">training loss</span><span class="val" id="sL">&ndash;</span></div>
+    </div>
+    <div class="card"><h2>Training loss by update (log scale)</h2>
+      <canvas id="cLoss" width="760" height="380" role="img" aria-label="Training loss after each update"></canvas></div>
+    <div class="card"><h2>The model</h2>
+      <p class="note">Linear regression &ycirc; = w<sub>1</sub> x<sub>1</sub> + w<sub>2</sub> x<sub>2</sub> on n = 256 examples with centered features, mean squared error.
+      Along each weight the loss is a parabola with curvature s<sub>j</sub><sup>2</sup>, the variance of the feature, so one full-batch step multiplies the error of w<sub>j</sub> by 1 &minus; 2&eta;s<sub>j</sub><sup>2</sup>.
+      Each epoch shuffles the examples and makes 256/b updates.</p></div>
+  </section>
+</main>
+</div>
+
+<footer>
+  &copy; 2026 Kuk Jin Jang, Hongik University &middot;
+  <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>; commercial or
+  closed-source use by permission (<a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>)
+  &middot; after Zhang, Lipton, Li &amp; Smola, <em>Dive into Deep Learning</em>, &sect;5.4 and &sect;12.3&ndash;12.5
+</footer>
+
+<script>
+"use strict";
+function rng(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function gauss(r) {
+  const u = Math.max(r(), 1e-12), v = r();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const fmt = (v) => (v === 0 ? "0" : (Math.abs(v) >= 1e4 || Math.abs(v) < 1e-3) ? v.toExponential(1) : v.toPrecision(3));
+function sd(a) {
+  let m = 0; for (const v of a) m += v; m /= a.length;
+  let s = 0; for (const v of a) s += (v - m) * (v - m);
+  return Math.sqrt(s / a.length);
+}
+
+// ======================= part 1 ===============================================================
+const N = 100, DEPTH = 10, BATCH = 256;
+const D = { seed: 1 };
+function actFn(kind) {
+  if (kind === "sigmoid") return { f: (z) => 1 / (1 + Math.exp(-z)), d: (z) => { const s = 1 / (1 + Math.exp(-z)); return s * (1 - s); } };
+  if (kind === "tanh") return { f: Math.tanh, d: (z) => { const t = Math.tanh(z); return 1 - t * t; } };
+  if (kind === "relu") return { f: (z) => (z > 0 ? z : 0), d: (z) => (z > 0 ? 1 : 0) };
+  return { f: (z) => z, d: () => 1 };
+}
+function sigmaOf(init) {
+  if (init === "xavier") return Math.sqrt(2 / (N + N));
+  if (init === "he") return Math.sqrt(2 / N);
+  return +init;
+}
+function runDeep() {
+  const kind = document.getElementById("act").value, init = document.getElementById("init").value;
+  const raw = document.getElementById("inputs").value === "raw";
+  const sig = sigmaOf(init), A = actFn(kind), r = rng(1000 + D.seed);
+  let h = new Float64Array(BATCH * N);
+  for (let i = 0; i < h.length; i++) h[i] = raw ? 100 + 20 * gauss(r) : gauss(r);
+  const Ws = [], Zs = [], actSd = [], sat = [];
+  for (let l = 0; l < DEPTH; l++) {
+    const W = new Float64Array(N * N);
+    for (let i = 0; i < W.length; i++) W[i] = sig * gauss(r);
+    const z = new Float64Array(BATCH * N), out = new Float64Array(BATCH * N);
+    let ns = 0;
+    for (let b = 0; b < BATCH; b++)
+      for (let j = 0; j < N; j++) {
+        let s = 0;
+        for (let k = 0; k < N; k++) s += h[b * N + k] * W[k * N + j];
+        z[b * N + j] = s; out[b * N + j] = A.f(s);
+        if (kind !== "linear" && kind !== "relu" && A.d(s) < 0.01) ns++;
+      }
+    Ws.push(W); Zs.push(z); actSd.push(sd(out)); sat.push(ns / (BATCH * N)); h = out;
+  }
+  let g = new Float64Array(BATCH * N);
+  for (let i = 0; i < g.length; i++) g[i] = gauss(r);
+  const gradSd = new Array(DEPTH);
+  for (let l = DEPTH - 1; l >= 0; l--) {
+    const W = Ws[l], z = Zs[l], gz = new Float64Array(BATCH * N), gin = new Float64Array(BATCH * N);
+    for (let i = 0; i < gz.length; i++) gz[i] = g[i] * A.d(z[i]);
+    for (let b = 0; b < BATCH; b++)
+      for (let k = 0; k < N; k++) {
+        let s = 0;
+        for (let j = 0; j < N; j++) s += gz[b * N + j] * W[k * N + j];
+        gin[b * N + k] = s;
+      }
+    gradSd[l] = sd(gin); g = gin;
+  }
+  D.res = { kind, init, raw, sig, actSd, gradSd, sat };
+}
+function logPlot(id, series, color, label) {
+  const cv = document.getElementById(id), ctx = cv.getContext("2d"), W = cv.width, H = cv.height;
+  const padL = 70, padB = 44, padT = 14, padR = 16;
+  ctx.fillStyle = css("--bg"); ctx.fillRect(0, 0, W, H);
+  const fin = series.filter((v) => isFinite(v) && v > 0);
+  let lo = Math.floor(Math.log10(Math.min(...fin, 0.1))), hi = Math.ceil(Math.log10(Math.max(...fin, 10)));
+  if (hi - lo < 2) hi = lo + 2;
+  const X = (i) => padL + i / (DEPTH - 1) * (W - padL - padR);
+  const Y = (v) => padT + (hi - Math.log10(v)) / (hi - lo) * (H - padT - padB);
+  ctx.font = "18px system-ui, sans-serif"; ctx.fillStyle = css("--muted");
+  const stepE = Math.max(1, Math.ceil((hi - lo) / 6));
+  for (let e = lo; e <= hi; e += stepE) {
+    ctx.strokeStyle = css("--grid"); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(padL, Y(10 ** e)); ctx.lineTo(W - padR, Y(10 ** e)); ctx.stroke();
+    ctx.fillText(e === 0 ? "1" : "1e" + e, 8, Y(10 ** e) + 6);
+  }
+  ctx.strokeStyle = css("--muted"); ctx.lineWidth = 1.5; ctx.setLineDash([6, 5]);
+  ctx.beginPath(); ctx.moveTo(padL, Y(1)); ctx.lineTo(W - padR, Y(1)); ctx.stroke(); ctx.setLineDash([]);
+  for (let i = 0; i < DEPTH; i++) ctx.fillText(String(i + 1), X(i) - 5, H - padB + 24);
+  ctx.fillText(label, 8, H - padB + 24);
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 3;
+  ctx.beginPath();
+  series.forEach((v, i) => { const y = Y(Math.max(v, 10 ** lo)); i ? ctx.lineTo(X(i), y) : ctx.moveTo(X(i), y); });
+  ctx.stroke();
+  series.forEach((v, i) => { ctx.beginPath(); ctx.arc(X(i), Y(Math.max(v, 10 ** lo)), 5, 0, 2 * Math.PI); ctx.fill(); });
+}
+function renderDeep() {
+  const R = D.res;
+  logPlot("cAct", R.actSd, css("--err"), "layer");
+  logPlot("cGrad", R.gradSd, css("--line"), "layer");
+  document.getElementById("sSigma").textContent = R.sig.toPrecision(3);
+  document.getElementById("sAct").textContent = fmt(R.actSd[0]) + " → " + fmt(R.actSd[DEPTH - 1]);
+  document.getElementById("sGrad").textContent = fmt(R.gradSd[DEPTH - 1]) + " → " + fmt(R.gradSd[0]);
+  let t = "layer   sd(activation)   sd(gradient)   saturated\n";
+  for (let l = 0; l < DEPTH; l++)
+    t += String(l + 1).padStart(5) + "   " + fmt(R.actSd[l]).padStart(14) + "   " + fmt(R.gradSd[l]).padStart(12) +
+      "   " + (R.kind === "relu" || R.kind === "linear" ? "      –" : (100 * R.sat[l]).toFixed(0).padStart(6) + "%") + "\n";
+  document.getElementById("table").textContent = t;
+  const ratio = R.gradSd[0] / R.gradSd[DEPTH - 1];
+  let msg;
+  if (!isFinite(ratio) || ratio < 1e-3) msg = "The gradient reaching layer 1 is " + fmt(ratio) + " times the gradient at layer 10: it vanishes, and the early layers would hardly learn.";
+  else if (ratio > 1e3) msg = "The gradient reaching layer 1 is " + fmt(ratio) + " times the gradient at layer 10: it explodes.";
+  else if (ratio < 0.1) msg = "The gradient reaching layer 1 is " + fmt(ratio) + " times the gradient at layer 10: it shrinks on the way down.";
+  else if (ratio > 10) msg = "The gradient reaching layer 1 is " + fmt(ratio) + " times the gradient at layer 10: it grows on the way down.";
+  else msg = "The gradient reaching layer 1 is " + fmt(ratio) + " times the gradient at layer 10: every layer receives a gradient of a usable size.";
+  if (R.sat[0] > 0.3) msg += " In layer 1, " + (100 * R.sat[0]).toFixed(0) + "% of the units are saturated.";
+  document.getElementById("capDeep").textContent = msg;
+}
+function updateDeep() { runDeep(); renderDeep(); }
+
+// ======================= part 2 ===============================================================
+const NL = 256, WSTAR = [1.5, -1.0], W0 = [-1.5, 1.5];
+const L2 = { seed: 1 };
+function makeLrData() {
+  const s1 = +document.getElementById("feat").value, r = rng(42), X = [], y = [];
+  for (let i = 0; i < NL; i++) {
+    const a = gauss(r), b = gauss(r);
+    X.push([s1 * a, b]); y.push(WSTAR[0] * a + WSTAR[1] * b + 0.5 * gauss(r));
+  }
+  // center the features, and give them the standard deviations s1 and 1 exactly
+  for (let j = 0; j < 2; j++) {
+    let m = 0; for (const x of X) m += x[j]; m /= NL;
+    let v = 0; for (const x of X) v += (x[j] - m) * (x[j] - m); const sdj = Math.sqrt(v / NL);
+    const target = j === 0 ? s1 : 1;
+    for (const x of X) x[j] = (x[j] - m) / sdj * target;
+  }
+  let m = 0; for (const v of y) m += v; m /= NL; for (let i = 0; i < NL; i++) y[i] -= m;
+  // least-squares solution for the contour centre
+  let a11 = 0, a12 = 0, a22 = 0, c1 = 0, c2 = 0;
+  for (let i = 0; i < NL; i++) { const [p, q] = X[i]; a11 += p * p; a12 += p * q; a22 += q * q; c1 += p * y[i]; c2 += q * y[i]; }
+  const det = a11 * a22 - a12 * a12;
+  return { X, y, s1, opt: [(a22 * c1 - a12 * c2) / det, (a11 * c2 - a12 * c1) / det], H: [a11 / NL, a12 / NL, a22 / NL] };
+}
+function lossAt(w) {
+  let s = 0;
+  for (let i = 0; i < NL; i++) { const e = L2.data.X[i][0] * w[0] + L2.data.X[i][1] * w[1] - L2.data.y[i]; s += e * e; }
+  return s / NL;
+}
+function resetLr() {
+  playLr(false);
+  L2.data = makeLrData();
+  L2.w = W0.slice(); L2.t = 0; L2.path = [L2.w.slice()]; L2.losses = [lossAt(L2.w)];
+  L2.order = []; L2.pos = NL; L2.r = rng(7 + L2.seed); L2.diverged = false;
+  renderLr();
+}
+function stepLr() {
+  if (L2.diverged) return;
+  const b = +document.getElementById("bs").value, eta0 = +document.getElementById("lr").value;
+  const eta = document.getElementById("sched").value === "decay" ? eta0 / (1 + L2.t / 50) : eta0;
+  if (L2.pos + b > NL) {
+    L2.order = Array.from({ length: NL }, (_, i) => i);
+    for (let i = NL - 1; i > 0; i--) { const j = Math.floor(L2.r() * (i + 1)); [L2.order[i], L2.order[j]] = [L2.order[j], L2.order[i]]; }
+    L2.pos = 0;
+  }
+  const g = [0, 0];
+  for (let k = 0; k < b; k++) {
+    const i = L2.order[L2.pos + k], x = L2.data.X[i];
+    const e = x[0] * L2.w[0] + x[1] * L2.w[1] - L2.data.y[i];
+    g[0] += 2 * e * x[0] / b; g[1] += 2 * e * x[1] / b;
+  }
+  L2.pos += b;
+  L2.w = [L2.w[0] - eta * g[0], L2.w[1] - eta * g[1]];
+  L2.t++;
+  L2.path.push(L2.w.slice());
+  const L = lossAt(L2.w); L2.losses.push(L);
+  if (!isFinite(L) || L > 1e8) { L2.diverged = true; playLr(false); }
+}
+function renderLr() {
+  const cv = document.getElementById("cPath"), ctx = cv.getContext("2d"), W = cv.width;
+  const c = L2.data.opt, span = 3.4, lo0 = c[0] - span, lo1 = c[1] - span;
+  const X = (v) => (v - lo0) / (2 * span) * W, Y = (v) => W - (v - lo1) / (2 * span) * W;
+  ctx.fillStyle = css("--bg"); ctx.fillRect(0, 0, W, W);
+  // contour lines of the quadratic: L = L* + d^T H d
+  const [h11, h12, h22] = L2.data.H;
+  ctx.strokeStyle = css("--grid"); ctx.lineWidth = 2;
+  for (const lev of [0.05, 0.2, 0.5, 1, 2, 4, 8, 16, 32, 64]) {
+    ctx.beginPath();
+    for (let k = 0; k <= 180; k++) {
+      const th = 2 * Math.PI * k / 180, u = [Math.cos(th), Math.sin(th)];
+      const q = h11 * u[0] * u[0] + 2 * h12 * u[0] * u[1] + h22 * u[1] * u[1], rr = Math.sqrt(lev / q);
+      const px = X(c[0] + rr * u[0]), py = Y(c[1] + rr * u[1]);
+      k ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    }
+    ctx.stroke();
+  }
+  ctx.fillStyle = css("--ink"); ctx.font = "26px system-ui, sans-serif"; ctx.fillText("★", X(c[0]) - 11, Y(c[1]) + 9);
+  ctx.strokeStyle = css("--err"); ctx.lineWidth = 2;
+  ctx.beginPath();
+  L2.path.forEach((w, i) => {
+    const px = Math.max(-50, Math.min(W + 50, X(w[0]))), py = Math.max(-50, Math.min(W + 50, Y(w[1])));
+    i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+  });
+  ctx.stroke();
+  ctx.fillStyle = css("--err");
+  const last = L2.path[L2.path.length - 1];
+  ctx.beginPath(); ctx.arc(X(last[0]), Y(last[1]), 7, 0, 2 * Math.PI); ctx.fill();
+  ctx.fillStyle = css("--muted"); ctx.font = "20px system-ui, sans-serif";
+  ctx.fillText("w₁ →", W - 70, W - 12); ctx.fillText("w₂ ↑", 10, 26);
+  // loss curve
+  const lc = document.getElementById("cLoss"), lx = lc.getContext("2d"), LW = lc.width, LH = lc.height, pad = 60;
+  lx.fillStyle = css("--bg"); lx.fillRect(0, 0, LW, LH);
+  const Ls = L2.losses.map((v) => (isFinite(v) ? v : 1e9)), lmin = 0.1, lmax = Math.max(10, Ls[0] * 2);
+  const ly = (v) => 10 + (Math.log10(lmax) - Math.log10(Math.max(v, lmin))) / (Math.log10(lmax) - Math.log10(lmin)) * (LH - 50);
+  lx.font = "18px system-ui, sans-serif"; lx.fillStyle = css("--muted");
+  for (const v of [0.1, 1, 10, 100, 1000]) if (v <= lmax) {
+    lx.strokeStyle = css("--grid"); lx.beginPath(); lx.moveTo(pad, ly(v)); lx.lineTo(LW - 10, ly(v)); lx.stroke();
+    lx.fillText(String(v), 8, ly(v) + 6);
+  }
+  const n = Math.max(Ls.length - 1, 50);
+  lx.strokeStyle = css("--err"); lx.lineWidth = 2.5; lx.beginPath();
+  Ls.forEach((v, i) => { const px = pad + i / n * (LW - pad - 10); i ? lx.lineTo(px, ly(Math.min(v, lmax))) : lx.moveTo(px, ly(Math.min(v, lmax))); });
+  lx.stroke();
+  lx.fillText("update " + L2.t, LW - 130, LH - 8);
+  // stats and caption
+  const b = +document.getElementById("bs").value, eta = +document.getElementById("lr").value;
+  document.getElementById("sT").textContent = L2.t;
+  document.getElementById("sEp").textContent = (L2.t * b / NL).toFixed(1);
+  document.getElementById("sL").textContent = L2.diverged ? "diverged" : fmt(L2.losses[L2.losses.length - 1]);
+  const s1sq = L2.data.H[0], f1 = 1 - 2 * eta * s1sq, f2 = 1 - 2 * eta * L2.data.H[2];
+  let msg = "Full-batch factors per step: " + f1.toFixed(2) + " for w₁ (curvature " + s1sq.toFixed(2) + ") and " + f2.toFixed(2) + " for w₂. ";
+  if (Math.abs(f1) >= 1 || Math.abs(f2) >= 1) msg += "A factor outside (−1, 1) makes that error grow: η is too large.";
+  else if (Math.max(Math.abs(f1), Math.abs(f2)) > 0.97) msg += "A factor close to 1 makes progress slow along that weight.";
+  else msg += b < NL ? "With b = " + b + " each step follows a noisy estimate of the gradient, so the path wanders near the minimum." : "Every step uses all 256 examples.";
+  document.getElementById("capLr").textContent = msg;
+}
+let timer = null;
+function playLr(on) {
+  L2.playing = on;
+  document.getElementById("bPlay").firstChild.textContent = on ? "Pause" : "Play";
+  if (timer) { clearInterval(timer); timer = null; }
+  if (on) timer = setInterval(() => { for (let k = 0; k < 2; k++) stepLr(); renderLr(); if (L2.t >= 2000) playLr(false); }, 40);
+}
+
+// ======================= controls ============================================================
+function showPart(deep) {
+  document.getElementById("partDeep").hidden = !deep;
+  document.getElementById("partLr").hidden = deep;
+  document.getElementById("tabDeep").className = deep ? "primary" : "";
+  document.getElementById("tabLr").className = deep ? "" : "primary";
+  document.getElementById("tabDeep").setAttribute("aria-selected", deep);
+  document.getElementById("tabLr").setAttribute("aria-selected", !deep);
+  if (!deep) { playLr(false); renderLr(); }
+}
+document.getElementById("tabDeep").onclick = () => showPart(true);
+document.getElementById("tabLr").onclick = () => showPart(false);
+for (const id of ["act", "init", "inputs"]) document.getElementById(id).onchange = updateDeep;
+document.getElementById("bDraw").onclick = () => { D.seed++; updateDeep(); };
+document.getElementById("bStep").onclick = () => { playLr(false); stepLr(); renderLr(); };
+document.getElementById("bPlay").onclick = () => playLr(!L2.playing);
+document.getElementById("bReset").onclick = () => resetLr();
+for (const id of ["lr", "bs", "feat", "sched"]) document.getElementById(id).onchange = resetLr;
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "SELECT") return;
+  const lrPart = !document.getElementById("partLr").hidden;
+  if (!lrPart && (e.key === "n" || e.key === "N")) { D.seed++; updateDeep(); }
+  if (lrPart && e.key === " ") { e.preventDefault(); playLr(!L2.playing); }
+  else if (lrPart && (e.key === "s" || e.key === "S" || e.key === "ArrowRight")) { playLr(false); stepLr(); renderLr(); }
+  else if (lrPart && (e.key === "r" || e.key === "R")) resetLr();
+});
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { renderDeep(); renderLr(); });
+updateDeep();
+resetLr();
+</script>
+</body>
+</html>

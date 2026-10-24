@@ -26,6 +26,7 @@ Published with GitHub Pages at <https://hongik-aicourses.github.io/ml-demos/>.
 | 9, Hour 3 | Why the block has a residual stream: activations and gradients through a deep stack, plain or residual, with or without RMSNorm | [week09-block/](https://hongik-aicourses.github.io/ml-demos/week09-block/) |
 | 9, make-up | Fine-tuning a model to follow a prompt: prompt tokens as new rows, the loss masked on the prompt, sampled names before and after SFT | [instruction-tuning/](https://hongik-aicourses.github.io/ml-demos/instruction-tuning/) |
 | 11, Hour 1 | Optimizers in a canyon: gradient descent, momentum and Adam on d2l's ill-conditioned function | [week11-optimizers/](https://hongik-aicourses.github.io/ml-demos/week11-optimizers/) |
+| 11, Hour 2 | Sampling from a language model: the decode loop one character at a time, temperature, top-k, top-p, greedy decoding | [week11-sampling/](https://hongik-aicourses.github.io/ml-demos/week11-sampling/) |
 | later | Regularization: weight decay and L1 on a polynomial | [week06-regularization/](https://hongik-aicourses.github.io/ml-demos/week06-regularization/) |
 | later | A convolution, line by line: a 3 &times; 3 filter over a picture, then a causal filter over a sentence | [convolution/](https://hongik-aicourses.github.io/ml-demos/convolution/) |
 | later | A small CNN learns its own filters: 8 filters on handwritten digits, next to softmax regression, with moved digits | [cnn-digits/](https://hongik-aicourses.github.io/ml-demos/cnn-digits/) |

@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A Recurrent Language Model, Step by Step</title>
+<meta name="description" content="RNN demo: a character-level recurrent language model (one-hot input, 32 tanh units) trained on 240 names by backpropagation through time with gradient clipping; the hidden state at every step of a name, the gradient of the last prediction by step, the loss curves and sampled names.">
+<!--
+  (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
+  licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
+  Commercial use, closed-source use, or any other licensing: by permission,
+  jangkj@hongik.ac.kr.
+
+  Week 8, Hour 3 demo (calendar Week 10, Thu 5 Nov) --- a recurrent language model, step by step.
+  The names of the course's PyTorch notebook (every seventh name kept for validation), read one
+  character at a time from "."; h_t = tanh(x_t W_xh + h_{t-1} W_hh + b_h), o_t = h_t W_hq + b_q
+  (d2l.ai 9.4.2), 32 hidden units. The page computes backpropagation through time and gradient
+  clipping g <- min(1, theta/|g|) g (d2l 9.5.3, 9.7) itself. It draws the hidden state after each
+  character of a typed name, and the norm of the gradient of the last prediction with respect to
+  each earlier state, on a log scale.
+  Keys: Right arrow = next line, N = one step, Space = train / pause, R = reset, S = sample names.
+  One self-contained file: no server, no network, no libraries.
+-->
+<style>
+:root {
+  --bg: #ffffff;
+  --panel: #f4f5f7;
+  --ink: #1a1a1a;
+  --muted: #5b6068;
+  --rule: #d9dce1;
+  --grid: #eceef1;
+  --line: #2f6fbf;
+  --err: #c00000;
+  --pos: #1e8e5a;
+  --exact: #b7791f;
+  --hl: #fff1c2;
+  --hl-ink: #1a1a1a;
+  --btn: #ffffff;
+  --btn-ink: #1a1a1a;
+  --btn-edge: #b9bec6;
+  --btn-primary: #2f6fbf;
+  --btn-primary-ink: #ffffff;
+  --code-bg: #fbfbfc;
+  --comment: #8a8f98;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418;
+    --panel: #1a1f26;
+    --ink: #e8eaed;
+    --muted: #9aa3ae;
+    --rule: #2c333c;
+    --grid: #222931;
+    --line: #6ea8ff;
+    --err: #ff6b6b;
+    --pos: #4fcf8e;
+    --exact: #e0b04f;
+    --hl: #3a3320;
+    --hl-ink: #fff4d6;
+    --btn: #1f252d;
+    --btn-ink: #e8eaed;
+    --btn-edge: #3a424d;
+    --btn-primary: #4a86d8;
+    --btn-primary-ink: #0b0e12;
+    --code-bg: #151a20;
+    --comment: #7d8793;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+  --grid: #222931; --line: #6ea8ff; --err: #ff6b6b; --pos: #4fcf8e; --exact: #e0b04f;
+  --hl: #3a3320; --hl-ink: #fff4d6; --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d;
+  --btn-primary: #4a86d8; --btn-primary-ink: #0b0e12; --code-bg: #151a20; --comment: #7d8793;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+}
+header {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px;
+  padding: 10px 20px 6px; border-bottom: 1px solid var(--rule);
+}
+header h1 { font-size: 22px; margin: 0; font-weight: 650; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); font-size: 14px; }
+.controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 8px 20px; border-bottom: 1px solid var(--rule); background: var(--panel);
+}
+.controls .group { display: flex; align-items: center; gap: 6px; }
+.controls .sep { width: 1px; align-self: stretch; background: var(--rule); margin: 0 4px; }
+label { font-size: 14px; color: var(--muted); }
+select, button, input[type=range] { font: inherit; font-size: 15px; }
+select {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 8px;
+}
+button {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
+}
+button.primary { background: var(--btn-primary); color: var(--btn-primary-ink); border-color: var(--btn-primary); }
+button:hover { filter: brightness(0.97); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--line); outline-offset: 2px; }
+kbd {
+  font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; color: inherit; opacity: 0.75;
+  border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; margin-left: 4px;
+}
+main {
+  display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 12px; padding: 10px 20px 12px;
+}
+@media (min-width: 901px) and (min-height: 600px) {
+  body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  main { flex: 1; min-height: 0; }
+}
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+@media (max-width: 1440px) { kbd { display: none; } }
+
+
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px; }
+.card h2 { font-size: 15px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.left, .right { display: grid; gap: 10px; min-width: 0; min-height: 0; }
+.left { grid-template-rows: minmax(0, 1fr) auto auto; }
+.right { grid-template-rows: minmax(0, 1fr) auto; }
+.card.grow .code { flex: 1; overflow: auto; }
+.card.grow { display: flex; flex-direction: column; min-height: 0; }
+.card.grow svg { flex: 1; min-height: 110px; height: 100%; }
+#chart { min-height: 250px; }
+.bars svg { height: 150px; }
+svg { display: block; width: 100%; }
+.caption {
+  font-size: 18px; min-height: 3.1em; padding: 8px 14px;
+  background: var(--bg); border: 1px solid var(--rule); border-left: 4px solid var(--line);
+  border-radius: 8px;
+}
+.caption .math { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 16px; }
+.bars { display: grid; grid-template-columns: 1fr 1fr 1.25fr; gap: 10px; }
+@media (max-width: 900px) { .bars { grid-template-columns: 1fr 1fr; } }
+.code {
+  font: 15.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  background: var(--code-bg); border: 1px solid var(--rule); border-radius: 8px;
+  padding: 6px 0; overflow-x: auto;
+}
+.code .ln { display: grid; grid-template-columns: 2.4em 1fr; padding: 0 10px 0 0; white-space: pre; }
+.code .ln .no { color: var(--muted); text-align: right; padding-right: 12px; user-select: none; }
+.code .ln.on { background: var(--hl); color: var(--hl-ink); }
+.code .ln.diff { box-shadow: inset 4px 0 0 var(--err); }
+.code .ln.on .no { color: var(--hl-ink); font-weight: 700; }
+.code .c { color: var(--comment); }
+.vars { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; font-variant-numeric: tabular-nums; }
+.vars .v { display: flex; justify-content: space-between; padding: 2px 4px; border-bottom: 1px solid var(--rule);
+  font: 16px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.vars .v .k { color: var(--muted); }
+.vars .v.changed .val { color: var(--err); font-weight: 700; }
+.note { color: var(--muted); font-size: 13px; }
+footer {
+  padding: 4px 20px 6px; border-top: 1px solid var(--rule); background: var(--panel);
+  font-size: 12.5px; color: var(--muted);
+}
+footer a { color: var(--line); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+/* screen-size overrides: last, so they win over the base rules */
+@media (min-width: 901px) and (max-height: 820px) {
+  header { padding: 6px 20px 4px; }
+  header h1 { font-size: 19px; }
+  .controls { padding: 5px 20px; }
+  main { gap: 8px; padding: 6px 16px 8px; }
+  .left, .right { gap: 7px; }
+  .card { padding: 5px 8px; }
+  .card h2 { font-size: 12px; margin-bottom: 3px; }
+  .code { font-size: 13.5px; line-height: 1.3; padding: 2px 0; }
+  .vars .v { font-size: 14px; padding: 1px 4px; }
+  .caption { font-size: 16px; min-height: 2.9em; padding: 6px 12px; }
+  .caption .math { font-size: 14px; }
+  .bars svg { height: 112px; }
+  .card.grow svg { min-height: 80px; }
+  footer { padding: 3px 16px 4px; font-size: 11.5px; }
+  #chart { min-height: 200px; }
+}
+@media (min-width: 1800px) and (min-height: 1000px) {
+  body { font-size: 18px; }
+  header h1 { font-size: 26px; }
+  select, button { font-size: 17px; }
+  .card h2 { font-size: 15px; }
+  .code { font-size: 19px; }
+  .vars .v { font-size: 19px; }
+  .caption { font-size: 21px; }
+  .caption .math { font-size: 18px; }
+  .bars svg { height: 200px; }
+}
+</style>
+<style>
+/* RNN-specific additions */
+.card, .card.grow, .code, .vars { min-width: 0; }
+.vars .v .val { overflow-x: auto; white-space: nowrap; margin-left: 8px; }
+.vars .v.wide { grid-column: 1 / -1; }
+.bars { grid-template-columns: 1.15fr 1fr; }
+#scene { min-height: 300px; }
+.code { font-size: 14px; }
+input[type=text] { font: inherit; font-size: 15px; width: 7em; padding: 4px 6px; border-radius: 6px;
+  border: 1px solid var(--btn-edge); background: var(--btn); color: var(--btn-ink); }
+.samples { font: 15px ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--ink); padding: 2px 4px; line-height: 1.5; }
+@media (max-width: 900px) { #scene { min-height: 520px; } .bars { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>A recurrent language model, step by step</h1>
+  <p>Recurrent neural networks &middot; one hidden state carries the past; backpropagation through time; gradient clipping</p>
+</header>
+
+<div class="controls" role="toolbar" aria-label="Demo controls">
+  <div class="group">
+    <button id="bLine" class="primary">Next line<kbd>&rarr;</kbd></button>
+    <button id="bStep">One step<kbd>N</kbd></button>
+    <button id="bRun">Train<kbd>Space</kbd></button>
+    <button id="bReset">Reset<kbd>R</kbd></button>
+  </div>
+  <span class="sep" aria-hidden="true"></span>
+  <div class="group">
+    <label for="lr">Learning rate</label>
+    <select id="lr">
+      <option value="0.03">0.03</option>
+      <option value="0.1" selected>0.1</option>
+      <option value="0.3">0.3</option>
+      <option value="1">1</option>
+    </select>
+    <label for="clip">Clipping θ</label>
+    <select id="clip">
+      <option value="0">off</option>
+      <option value="1" selected>1</option>
+      <option value="5">5</option>
+    </select>
+  </div>
+  <div class="group">
+    <button id="bSample">Sample names<kbd>S</kbd></button>
+  </div>
+  <div class="group">
+    <label for="word">Read a name</label>
+    <input id="word" type="text" value="christopher" maxlength="16" autocomplete="off" spellcheck="false">
+  </div>
+</div>
+
+<main>
+  <section class="left">
+    <div class="card grow">
+      <svg id="scene" role="img" aria-label="The hidden state at every step of a name, and the training and validation loss"></svg>
+    </div>
+    <div class="caption" id="caption" aria-live="polite"></div>
+    <div class="bars">
+      <div class="card"><h2 id="gradTitle">Gradient of the last prediction, by step</h2><svg id="barGrad"></svg></div>
+      <div class="card"><h2>Sampled names</h2><div class="samples" id="samples"></div></div>
+    </div>
+  </section>
+
+  <section class="right">
+    <div class="card grow">
+      <h2>rnn_lm.py</h2>
+      <div class="code" id="code"></div>
+    </div>
+    <div class="card">
+      <h2>Variables</h2>
+      <div class="vars" id="vars"></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  &copy; 2026 Kuk Jin Jang, Hongik University &middot;
+  <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>; commercial or
+  closed-source use by permission (<a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>) &middot;
+  the stepper follows the Week 4 demos, whose loop comes from
+  &ldquo;Machine Learning From Scratch, Part 1&rdquo; by
+  <a href="https://www.tiktok.com/@machinelearningtogo">@machinelearningtogo</a> on TikTok &middot;
+  the model, backpropagation through time and gradient clipping follow d2l.ai 9.4, 9.5 and 9.7
+</footer>
+
+<script>
+"use strict";
+// ---- data ---------------------------------------------------------------------
+const NAMES = "aaliyah aaron abigail adam addison adeline adrian aiden alexa alexander alice allison alyssa amelia andrew angel anna anthony aria ariana arianna arthur asher aubrey audrey aurora austin autumn ava avery axel bella benjamin bianca brayden brielle brooklyn bryson caleb cameron camila caroline carson carter charles charlotte chloe christian christopher claire colton connor cooper cora daisy daniel david declan delilah dominic dylan easton eleanor elena eli eliana elias elijah elizabeth ella ellie emery emilia emily emma ethan eva evan evelyn everett everly ezekiel ezra faith felix finn fiona frank gabriel gabriella genesis george gianna grace grayson greyson hailey hannah harper hazel henry hudson hugo hunter ian iris isaac isabella isaiah isla ivy jace jack jackson jacob jade james jameson jasmine jason jasper jaxon jaxson jayden jeremiah john jonathan jordan jose joseph josephine joshua josiah julia julian june kayden kaylee kennedy kinsley kylie landon lauren layla leah leo leonardo levi liam lila lillian lily lincoln logan louis lucas lucy luke luna lydia mackenzie madeline madelyn madison mariah mason mateo matthew maverick maya megan mia michael mila miles milo molly morgan naomi natalie nathan nevaeh nicholas nicole noah nolan nora nova oliver olivia oscar owen paisley parker penelope piper quinn rachel rhys riley robert roman rose ruby ryan sadie samantha samuel santiago sarah savannah sawyer scarlett sebastian serenity silas simon skylar sofia sophia sophie stella sydney taylor tessa theodore thomas tobias valentina victor victoria violet vivian william willow wren wyatt xavier zoe zoey".split(" ");
+const CH = ["."].concat([...new Set(NAMES.join(""))].sort());
+const V = CH.length, IDX = Object.fromEntries(CH.map((c, i) => [c, i]));
+const H = 32;
+const TR = NAMES.filter((_, i) => i % 7 !== 3), VA = NAMES.filter((_, i) => i % 7 === 3);
+const seqOf = (w) => [0].concat([...w].map((c) => IDX[c]), [0]);   // . name .
+
+// ---- the model -------------------------------------------------------------------
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+let rand = rng(1);
+const gauss = () => Math.sqrt(-2 * Math.log(1 - rand())) * Math.cos(2 * Math.PI * rand());
+let P;
+function init() {
+  rand = rng(1);
+  const mk = (n, s) => Float64Array.from({ length: n }, () => gauss() * s);
+  P = { Wx: mk(V * H, 0.3), Wh: mk(H * H, 1 / Math.sqrt(H)), bh: new Float64Array(H), Wo: mk(H * V, 1 / Math.sqrt(H)), bo: new Float64Array(V) };
+}
+const NPARAM = V * H + H * H + H + H * V + V;
+function forward(seq) {   // seq: ids of . name . ; returns states and probabilities for every step
+  const hs = [new Float64Array(H)], ps = [];
+  for (let t = 0; t + 1 < seq.length; t++) {
+    const hp = hs[t], h = new Float64Array(H), x = seq[t];
+    for (let u = 0; u < H; u++) { let s = P.bh[u] + P.Wx[x * H + u]; for (let k = 0; k < H; k++) s += hp[k] * P.Wh[k * H + u]; h[u] = Math.tanh(s); }
+    hs.push(h);
+    const z = new Float64Array(V); let mx = -Infinity;
+    for (let v = 0; v < V; v++) { let s = P.bo[v]; for (let u = 0; u < H; u++) s += h[u] * P.Wo[u * V + v]; z[v] = s; if (s > mx) mx = s; }
+    let Z = 0; for (let v = 0; v < V; v++) { z[v] = Math.exp(z[v] - mx); Z += z[v]; } for (let v = 0; v < V; v++) z[v] /= Z;
+    ps.push(z);
+  }
+  return { hs, ps };
+}
+function zeros() { return { Wx: new Float64Array(V * H), Wh: new Float64Array(H * H), bh: new Float64Array(H), Wo: new Float64Array(H * V), bo: new Float64Array(V) }; }
+// backpropagation through time for one name; adds into G; `only` = index of the one prediction to use (or -1 for all)
+function bptt(seq, G, scale, only = -1) {
+  const { hs, ps } = forward(seq), T = ps.length; let loss = 0;
+  let dhNext = new Float64Array(H); const dhNorm = new Array(T).fill(0);
+  for (let t = T - 1; t >= 0; t--) {
+    const h = hs[t + 1], hp = hs[t], y = seq[t + 1], dh = Float64Array.from(dhNext);
+    if (only < 0 || only === t) {
+      loss -= Math.log(Math.max(1e-300, ps[t][y]));
+      for (let v = 0; v < V; v++) { const dz = (ps[t][v] - (v === y ? 1 : 0)) * scale;
+        G.bo[v] += dz; for (let u = 0; u < H; u++) { G.Wo[u * V + v] += h[u] * dz; dh[u] += P.Wo[u * V + v] * dz; } }
+    }
+    let n = 0; for (let u = 0; u < H; u++) n += dh[u] * dh[u]; dhNorm[t] = Math.sqrt(n);
+    const da = Float64Array.from(dh, (g, u) => g * (1 - h[u] * h[u]));
+    dhNext = new Float64Array(H);
+    for (let u = 0; u < H; u++) { G.bh[u] += da[u]; G.Wx[seq[t] * H + u] += da[u];
+      for (let k = 0; k < H; k++) { G.Wh[k * H + u] += hp[k] * da[u]; dhNext[k] += P.Wh[k * H + u] * da[u]; } }
+  }
+  return { loss, T, dhNorm };
+}
+function lossOn(words) { let s = 0, n = 0; for (const w of words) { const q = seqOf(w), { ps } = forward(q); ps.forEach((p, t) => { s -= Math.log(Math.max(1e-300, p[q[t + 1]])); n++; }); } return s / n; }
+
+// ---- training state ---------------------------------------------------------------
+const CODE = [
+  ["for step in range(steps):", ""],
+  ["    batch = random.sample(train_names, 16)", "# 16 names"],
+  ["    h = zeros(32)", "# the state starts empty"],
+  ["    for t in range(T):", "# read the name one character at a time"],
+  ["        h = tanh(x[t] @ W_xh + h @ W_hh + b_h)", "# the new state from the input and the old state"],
+  ["        o[t] = h @ W_hq + b_q", "# scores for the next character"],
+  ["    loss = cross_entropy(o, targets)", "# average over all steps"],
+  ["    loss.backward()", "# backpropagation through time"],
+  ["    clip_grad_norm_(params, theta={THETA})", "# g <- min(1, theta / |g|) g"],
+  ["    opt.step()", "# w <- w - lr * g"],
+];
+let line, step, batch, last, hist, val, running = false, samples = [], gnorm = null, gnormClipped = null, acc = [], G = null;
+const lr = () => +document.getElementById("lr").value;
+const theta = () => +document.getElementById("clip").value;
+function reset() { init(); line = 0; step = 0; batch = null; last = null; gnorm = null; gnormClipped = null; samples = []; acc = []; G = null;
+  hist = [[0, lossOn(TR)]]; val = [[0, lossOn(VA)]]; }
+function drawBatch() { batch = Array.from({ length: 16 }, () => TR[Math.floor(Math.random() * TR.length)]); }
+function computeGrad() {
+  G = zeros(); let loss = 0, n = 0;
+  const nsteps = batch.reduce((t, w) => t + w.length + 1, 0);
+  for (const w of batch) { const r = bptt(seqOf(w), G, 1 / nsteps); loss += r.loss; n += r.T; }
+  last = loss / n;
+  let s = 0; for (const k in G) for (const g of G[k]) s += g * g; gnorm = Math.sqrt(s);
+}
+function clipAndStep(apply = true) {
+  const th = theta(), f = th && gnorm > th ? th / gnorm : 1; gnormClipped = gnorm * f;
+  if (!apply) return;
+  for (const k in P) { const p = P[k], g = G[k]; for (let j = 0; j < p.length; j++) p[j] -= lr() * f * g[j]; }
+  step++; acc.push(last);
+  if (step % 10 === 0) { hist.push([step, acc.reduce((a, b) => a + b, 0) / acc.length]); acc = []; }
+  if (step % 25 === 0) val.push([step, lossOn(VA)]);
+}
+function doStep() { drawBatch(); computeGrad(); clipAndStep(); if (!isFinite(last)) running = false; }
+function nextLine() {
+  if (line === 0 || line === 9) { line = 1; drawBatch(); }
+  else if (line === 1) line = 2;
+  else if (line === 2) line = 4;
+  else if (line === 4) line = 5;
+  else if (line === 5) { line = 6; computeGrad(); }
+  else if (line === 6) line = 7;
+  else if (line === 7) { line = 8; clipAndStep(false); }
+  else if (line === 8) { line = 9; clipAndStep(true); }
+}
+
+// ---- sampling ---------------------------------------------------------------------
+function sample(n = 10) {
+  const out = [];
+  for (let s = 0; s < n; s++) {
+    let w = "", h = new Float64Array(H), x = 0;
+    while (w.length < 16) {
+      const hn = new Float64Array(H);
+      for (let u = 0; u < H; u++) { let a = P.bh[u] + P.Wx[x * H + u]; for (let k = 0; k < H; k++) a += h[k] * P.Wh[k * H + u]; hn[u] = Math.tanh(a); }
+      h = hn; const z = new Float64Array(V); let mx = -Infinity;
+      for (let v = 0; v < V; v++) { let a = P.bo[v]; for (let u = 0; u < H; u++) a += h[u] * P.Wo[u * V + v]; z[v] = a; if (a > mx) mx = a; }
+      let Z = 0; for (let v = 0; v < V; v++) { z[v] = Math.exp(z[v] - mx); Z += z[v]; }
+      let r = Math.random() * Z, v = 0; for (; v < V - 1; v++) { r -= z[v]; if (r <= 0) break; }
+      if (v === 0) break; w += CH[v]; x = v;
+    }
+    out.push(w || "(empty)");
+  }
+  return out;
+}
+const word = () => document.getElementById("word").value.toLowerCase().replace(/[^a-z]/g, "").slice(0, 16) || "emma";
+
+// ---- drawing --------------------------------------------------------------------
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const a in attrs) e.setAttribute(a, attrs[a]);
+  if (text !== undefined) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const mono = "ui-monospace, Menlo, Consolas, monospace";
+function heat(v) {   // -1 blue, 0 panel, +1 red
+  const a = Math.min(1, Math.abs(v));
+  return v >= 0 ? `rgba(192,0,0,${a.toFixed(2)})` : `rgba(47,111,191,${a.toFixed(2)})`;
+}
+function drawScene() {
+  const svg = document.getElementById("scene"); svg.innerHTML = "";
+  const W = svg.clientWidth || 640, Hh = svg.clientHeight || 340; svg.setAttribute("viewBox", `0 0 ${W} ${Hh}`);
+  const narrow = W < 560, wd = word(), q = seqOf(wd), { hs, ps } = forward(q), T = ps.length;
+  const pw0 = narrow ? W - 20 : W * 0.52, ph0 = narrow ? Hh / 2 - 30 : Hh - 60;
+  const cw = Math.min(30, (pw0 - 40) / T), rh = Math.min(7, (ph0 - 40) / H), x0 = 40, y0 = 30;
+  el("text", { x: 8, y: 14, "font-size": 12, fill: css("--muted") }, svg, `state h after each character (red > 0, blue < 0)`);
+  for (let t = 0; t < T; t++) {
+    const h = hs[t + 1];
+    for (let u = 0; u < H; u++) el("rect", { x: x0 + t * cw, y: y0 + u * rh, width: cw - 1, height: rh, fill: heat(h[u]) }, svg);
+    el("text", { x: x0 + t * cw + cw / 2, y: y0 + H * rh + 15, "text-anchor": "middle", "font-size": 13, "font-family": mono, fill: css("--ink") }, svg, CH[q[t]]);
+    const p = ps[t], y = q[t + 1];
+    let best = 0; for (let v = 1; v < V; v++) if (p[v] > p[best]) best = v;
+    el("text", { x: x0 + t * cw + cw / 2, y: y0 + H * rh + 31, "text-anchor": "middle", "font-size": 12, "font-family": mono, fill: best === y ? css("--pos") : css("--muted") }, svg, CH[best]);
+    el("text", { x: x0 + t * cw + cw / 2, y: y0 + H * rh + 46, "text-anchor": "middle", "font-size": 10.5, fill: css("--muted") }, svg, p[y].toFixed(2));
+  }
+  el("text", { x: 4, y: y0 + H * rh + 15, "font-size": 11, fill: css("--muted") }, svg, "read");
+  el("text", { x: 4, y: y0 + H * rh + 31, "font-size": 11, fill: css("--muted") }, svg, "guess");
+  el("text", { x: 4, y: y0 + H * rh + 46, "font-size": 11, fill: css("--muted") }, svg, "P(next)");
+  // loss curves
+  const px = narrow ? x0 : x0 + pw0 + 30, py = narrow ? y0 + H * rh + 80 : y0, pw = narrow ? W - x0 - 14 : W - px - 14, ph = narrow ? Hh - py - 30 : ph0;
+  el("text", { x: px, y: py - 12, "font-size": 12, fill: css("--muted") }, svg, "loss: minibatch (blue), validation (red)");
+  el("rect", { x: px, y: py, width: pw, height: ph, fill: "none", stroke: css("--rule") }, svg);
+  const TT = Math.max(200, step), lo = 1.5, hi = 3.6;
+  const LX = (s) => px + s / TT * pw, LY = (l) => py + ph - (Math.min(hi, Math.max(lo, l)) - lo) / (hi - lo) * ph;
+  for (const l of [2, 2.5, 3, 3.5]) { el("line", { x1: px, x2: px + pw, y1: LY(l), y2: LY(l), stroke: css("--grid") }, svg);
+    el("text", { x: px - 5, y: LY(l) + 4, "text-anchor": "end", "font-size": 11, fill: css("--muted") }, svg, l.toFixed(1)); }
+  el("line", { x1: px, x2: px + pw, y1: LY(Math.log(V)), y2: LY(Math.log(V)), stroke: css("--muted"), "stroke-dasharray": "4 3" }, svg);
+  const path = (pts, col, w) => { if (pts.length < 2) return; el("path", { d: pts.map((qq, i) => (i ? "L" : "M") + LX(qq[0]).toFixed(1) + " " + LY(qq[1]).toFixed(1)).join(""), fill: "none", stroke: col, "stroke-width": w }, svg); };
+  path(hist.filter((qq) => isFinite(qq[1])), css("--line"), 1.4); path(val.filter((qq) => isFinite(qq[1])), css("--err"), 2.2);
+  el("text", { x: px + pw, y: py + ph + 16, "text-anchor": "end", "font-size": 11.5, fill: css("--muted") }, svg, `step ${step}`);
+  const best = val.reduce((b, qq) => (qq[1] < b[1] ? qq : b), val[0]);
+  if (step > 0) el("text", { x: px, y: py + ph + 16, "font-size": 11.5, fill: css("--err") }, svg, `lowest validation ${best[1].toFixed(2)} at step ${best[0]}`);
+}
+function drawGrad() {
+  const svg = document.getElementById("barGrad"); svg.innerHTML = "";
+  const W = svg.clientWidth || 300, Hh = svg.clientHeight || 150; svg.setAttribute("viewBox", `0 0 ${W} ${Hh}`);
+  const wd = word(), q = seqOf(wd), T = q.length - 1;
+  const r = bptt(q, zeros(), 1, T - 1), d = r.dhNorm;
+  document.getElementById("gradTitle").textContent = `‖∂ℓ/∂hₜ‖ for the last prediction of “${wd}”`;
+  const mx = Math.max(...d, 1e-12), bw = (W - 10) / T;
+  for (let t = 0; t < T; t++) {
+    const lg = Math.max(0, (Math.log10(d[t] / mx) + 4) / 4), h = lg * (Hh - 36);
+    el("rect", { x: 5 + t * bw + 1, y: Hh - 18 - h, width: bw - 2, height: h, fill: t === T - 1 ? css("--err") : css("--line") }, svg);
+    el("text", { x: 5 + t * bw + bw / 2, y: Hh - 5, "text-anchor": "middle", "font-size": 11, "font-family": mono, fill: css("--muted") }, svg, CH[q[t]]);
+  }
+  el("text", { x: W - 6, y: 13, "text-anchor": "end", "font-size": 11.5, fill: css("--ink") }, svg, `first step: ${(d[0] / d[T - 1]).toExponential(1)} × the last (log scale)`);
+}
+
+// ---- code, caption, variables ---------------------------------------------------
+function renderCode() {
+  const box = document.getElementById("code"); box.innerHTML = "";
+  const on = new Set([line]); if (line === 4) [3, 4].forEach((qq) => on.add(qq));
+  CODE.forEach(([code, com], qq) => {
+    const d = document.createElement("div"); d.className = "ln" + (on.has(qq) ? " on" : "");
+    const no = document.createElement("span"); no.className = "no"; no.textContent = qq + 1;
+    const tx = document.createElement("span"); tx.textContent = code.replace("{THETA}", theta() || "None");
+    if (com) { const c = document.createElement("span"); c.className = "c"; c.textContent = "  " + com; tx.appendChild(c); }
+    d.append(no, tx); box.appendChild(d);
+  });
+}
+function caption() {
+  const c = document.getElementById("caption");
+  const m = {
+    0: `A new RNN with ${NPARAM.toLocaleString()} parameters at random values. The same weights are used at every step of a name. Press → to go through one step line by line, N for a whole step, Space to train.`,
+    1: `Pick 16 training names: ${batch ? batch.slice(0, 5).join(", ") : ""}, …`,
+    2: "The state starts at zero before every name: the model has read nothing yet.",
+    4: "Read one character: the new state mixes the input with the old state, so it carries everything read so far (d2l 9.4.2).",
+    5: "At every step the state gives 27 scores for the next character.",
+    6: `The loss averages the cross-entropy over every step of every name: ${last !== null ? last.toFixed(3) : "–"}.`,
+    7: `Backpropagation through time: the gradient flows back through every step of the name, multiplied by W_hh at each step (d2l 9.7). Its norm is ${gnorm !== null ? gnorm.toFixed(3) : "–"}.`,
+    8: theta() ? (gnorm > theta() ? `The gradient norm ${gnorm.toFixed(2)} is above θ = ${theta()}, so the gradient is scaled down to length ${theta()}, keeping its direction.` : `The gradient norm ${gnorm !== null ? gnorm.toFixed(2) : "–"} is below θ = ${theta()}: nothing changes.`) : "No clipping: the gradient is used as it is.",
+    9: running ? `Training: step ${step}.` : `One step along the negative gradient with learning rate ${lr()}.`,
+  }[line];
+  c.textContent = !isFinite(last ?? 0) ? `The loss became infinite: learning rate ${lr()} is too large${theta() ? "" : " and nothing limits the steps"}. Reset (R).` : (m || "");
+}
+function renderVars() {
+  const box = document.getElementById("vars"); box.innerHTML = "";
+  const add = (kk, v, wide) => { const d = document.createElement("div"); d.className = "v" + (wide ? " wide" : "");
+    d.innerHTML = `<span class="k">${kk}</span><span class="val">${v}</span>`; box.appendChild(d); };
+  const vl = val[val.length - 1][1];
+  add("step", step); add("minibatch loss", last !== null && isFinite(last) ? last.toFixed(3) : "–");
+  add("‖g‖ before clipping", gnorm !== null && isFinite(gnorm) ? gnorm.toFixed(3) : "–"); add("‖g‖ after", gnormClipped !== null && isFinite(gnormClipped) ? gnormClipped.toFixed(3) : "–");
+  add("validation loss", isFinite(vl) ? `${vl.toFixed(3)} (step ${val[val.length - 1][0]})` : "–"); add("validation perplexity", isFinite(vl) ? Math.exp(vl).toFixed(1) : "–");
+  add("data", `training ${TR.length} names, validation ${VA.length} names`, true);
+  add("parameters", `27·32 + 32·32 + 32 + 32·27 + 27 = ${NPARAM.toLocaleString()}`, true);
+}
+function render() { drawScene(); drawGrad(); renderCode(); caption(); renderVars();
+  document.getElementById("samples").textContent = samples.length ? samples.join("  ") : "press S to sample names from the model"; }
+
+// ---- controls -------------------------------------------------------------------
+function loop() {
+  if (!running) return;
+  const t0 = performance.now();
+  for (let k = 0; k < 2 && running && performance.now() - t0 < 30; k++) doStep();
+  line = 9; render(); requestAnimationFrame(loop);
+}
+function setRun(on) { running = on; document.getElementById("bRun").firstChild.textContent = on ? "Pause" : "Train"; if (on) requestAnimationFrame(loop); else render(); }
+document.getElementById("bLine").onclick = () => { setRun(false); nextLine(); render(); };
+document.getElementById("bStep").onclick = () => { setRun(false); doStep(); line = 9; render(); };
+document.getElementById("bRun").onclick = () => setRun(!running);
+document.getElementById("bReset").onclick = () => { setRun(false); reset(); render(); };
+document.getElementById("bSample").onclick = () => { samples = sample(); render(); };
+document.getElementById("lr").onchange = render;
+document.getElementById("clip").onchange = render;
+document.getElementById("word").oninput = render;
+document.addEventListener("keydown", (x) => {
+  if (x.target.tagName === "SELECT" || x.target.tagName === "INPUT") return;
+  const key = x.key.toLowerCase();
+  if (key === "arrowright") { x.preventDefault(); document.getElementById("bLine").click(); }
+  else if (key === " ") { x.preventDefault(); document.getElementById("bRun").click(); }
+  else if (key === "n") document.getElementById("bStep").click();
+  else if (key === "r") document.getElementById("bReset").click();
+  else if (key === "s") document.getElementById("bSample").click();
+});
+window.addEventListener("resize", render);
+reset(); render();
+</script>
+</body>
+</html>

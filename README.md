@@ -15,7 +15,10 @@ Published with GitHub Pages at <https://hongik-aicourses.github.io/ml-demos/>.
 | 5, Hour 3 | The multilayer perceptron | [week05-mlp/](https://hongik-aicourses.github.io/ml-demos/week05-mlp/) |
 | 5, make-up hour | Backpropagation | [week05-backprop/](https://hongik-aicourses.github.io/ml-demos/week05-backprop/) |
 | 6, Hour 3 | Training a deep network: the starting weights, the activation and the scale of the inputs | [week06-training/](https://hongik-aicourses.github.io/ml-demos/week06-training/) |
-| later | Regularization: weight decay and L1 on a polynomial | [week06-regularization/](https://hongik-aicourses.github.io/ml-demos/week06-regularization/) |
+| 9, Hour 1 | A bigram language model, line by line: counting letter pairs in 240 names, add-one smoothing, sampling and perplexity | [week09-bigram/](https://hongik-aicourses.github.io/ml-demos/week09-bigram/) |
+| 9, Hour 1 | Word vectors: nearest words, analogies and a two-dimensional map (GloVe 6B, 50 dimensions) | [week09-word-vectors/](https://hongik-aicourses.github.io/ml-demos/week09-word-vectors/) |
+| 9, Hour 2 | Training a character MLP language model: three letters of context, a two-number embedding per character, minibatch SGD line by line, a weight decay setting; the loss curves and sampled names | [week09-mlp-lm/](https://hongik-aicourses.github.io/ml-demos/week09-mlp-lm/) |
+| 9, Hour 3 | Regularization: weight decay and L1 on a polynomial | [week06-regularization/](https://hongik-aicourses.github.io/ml-demos/week06-regularization/) |
 | later | Naive Bayes spam filter, clue by clue | [naive-bayes/](https://hongik-aicourses.github.io/ml-demos/naive-bayes/) |
 
 ## Where the files come from

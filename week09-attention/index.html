@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Attention Pooling, Line by Line</title>
+<meta name="description" content="Attention demo: a query is compared with every key, a softmax turns the scores into weights, and the output is the weighted average of the values. Two examples from d2l.ai: Nadaraya-Watson regression with a Gaussian kernel, and scaled dot-product attention over four keys.">
+<!--
+  (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
+  licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
+  Commercial use, closed-source use, or any other licensing: by permission,
+  jangkj@hongik.ac.kr.
+
+  Week 9, Hour 1 demo (calendar Week 11, Tue 10 Nov) --- attention pooling, line by line.
+  Nadaraya-Watson mode: d2l 11.2's data (y = 2 sin x + x + noise, 40 examples, drawn once by
+  lectures/current/figures/make_figures_wk09_attention.py), a Gaussian kernel of width sigma, the
+  query moved along x. Dot-product mode: four keys in the plane with values 1 to 4 and the scaled
+  dot product q.k/sqrt(2) (d2l 11.3), the query turned and lengthened.
+  Keys: Right arrow = next line, F = run all, R = reset.
+  One self-contained file: no server, no network, no libraries.
+-->
+<style>
+:root {
+  --bg: #ffffff;
+  --panel: #f4f5f7;
+  --ink: #1a1a1a;
+  --muted: #5b6068;
+  --rule: #d9dce1;
+  --grid: #eceef1;
+  --line: #2f6fbf;
+  --err: #c00000;
+  --pos: #1e8e5a;
+  --exact: #b7791f;
+  --hl: #fff1c2;
+  --hl-ink: #1a1a1a;
+  --btn: #ffffff;
+  --btn-ink: #1a1a1a;
+  --btn-edge: #b9bec6;
+  --btn-primary: #2f6fbf;
+  --btn-primary-ink: #ffffff;
+  --code-bg: #fbfbfc;
+  --comment: #8a8f98;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418;
+    --panel: #1a1f26;
+    --ink: #e8eaed;
+    --muted: #9aa3ae;
+    --rule: #2c333c;
+    --grid: #222931;
+    --line: #6ea8ff;
+    --err: #ff6b6b;
+    --pos: #4fcf8e;
+    --exact: #e0b04f;
+    --hl: #3a3320;
+    --hl-ink: #fff4d6;
+    --btn: #1f252d;
+    --btn-ink: #e8eaed;
+    --btn-edge: #3a424d;
+    --btn-primary: #4a86d8;
+    --btn-primary-ink: #0b0e12;
+    --code-bg: #151a20;
+    --comment: #7d8793;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+  --grid: #222931; --line: #6ea8ff; --err: #ff6b6b; --pos: #4fcf8e; --exact: #e0b04f;
+  --hl: #3a3320; --hl-ink: #fff4d6; --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d;
+  --btn-primary: #4a86d8; --btn-primary-ink: #0b0e12; --code-bg: #151a20; --comment: #7d8793;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+}
+header {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px;
+  padding: 10px 20px 6px; border-bottom: 1px solid var(--rule);
+}
+header h1 { font-size: 22px; margin: 0; font-weight: 650; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); font-size: 14px; }
+.controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 8px 20px; border-bottom: 1px solid var(--rule); background: var(--panel);
+}
+.controls .group { display: flex; align-items: center; gap: 6px; }
+.controls .sep { width: 1px; align-self: stretch; background: var(--rule); margin: 0 4px; }
+label { font-size: 14px; color: var(--muted); }
+select, button, input[type=range] { font: inherit; font-size: 15px; }
+select {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 8px;
+}
+button {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
+}
+button.primary { background: var(--btn-primary); color: var(--btn-primary-ink); border-color: var(--btn-primary); }
+button:hover { filter: brightness(0.97); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--line); outline-offset: 2px; }
+kbd {
+  font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; color: inherit; opacity: 0.75;
+  border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; margin-left: 4px;
+}
+main {
+  display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 12px; padding: 10px 20px 12px;
+}
+@media (min-width: 901px) and (min-height: 600px) {
+  body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  main { flex: 1; min-height: 0; }
+}
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+@media (max-width: 1440px) { kbd { display: none; } }
+
+
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px; }
+.card h2 { font-size: 15px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.left, .right { display: grid; gap: 10px; min-width: 0; min-height: 0; }
+.left { grid-template-rows: minmax(0, 1fr) auto auto; }
+.right { grid-template-rows: minmax(0, 1fr) auto; }
+.card.grow .code { flex: 1; overflow: auto; }
+.card.grow { display: flex; flex-direction: column; min-height: 0; }
+.card.grow svg { flex: 1; min-height: 110px; height: 100%; }
+#chart { min-height: 250px; }
+.bars svg { height: 150px; }
+svg { display: block; width: 100%; }
+.caption {
+  font-size: 18px; min-height: 3.1em; padding: 8px 14px;
+  background: var(--bg); border: 1px solid var(--rule); border-left: 4px solid var(--line);
+  border-radius: 8px;
+}
+.caption .math { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 16px; }
+.bars { display: grid; grid-template-columns: 1fr 1fr 1.25fr; gap: 10px; }
+@media (max-width: 900px) { .bars { grid-template-columns: 1fr 1fr; } }
+.code {
+  font: 15.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  background: var(--code-bg); border: 1px solid var(--rule); border-radius: 8px;
+  padding: 6px 0; overflow-x: auto;
+}
+.code .ln { display: grid; grid-template-columns: 2.4em 1fr; padding: 0 10px 0 0; white-space: pre; }
+.code .ln .no { color: var(--muted); text-align: right; padding-right: 12px; user-select: none; }
+.code .ln.on { background: var(--hl); color: var(--hl-ink); }
+.code .ln.diff { box-shadow: inset 4px 0 0 var(--err); }
+.code .ln.on .no { color: var(--hl-ink); font-weight: 700; }
+.code .c { color: var(--comment); }
+.vars { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; font-variant-numeric: tabular-nums; }
+.vars .v { display: flex; justify-content: space-between; padding: 2px 4px; border-bottom: 1px solid var(--rule);
+  font: 16px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.vars .v .k { color: var(--muted); }
+.vars .v.changed .val { color: var(--err); font-weight: 700; }
+.note { color: var(--muted); font-size: 13px; }
+footer {
+  padding: 4px 20px 6px; border-top: 1px solid var(--rule); background: var(--panel);
+  font-size: 12.5px; color: var(--muted);
+}
+footer a { color: var(--line); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+/* screen-size overrides: last, so they win over the base rules */
+@media (min-width: 901px) and (max-height: 820px) {
+  header { padding: 6px 20px 4px; }
+  header h1 { font-size: 19px; }
+  .controls { padding: 5px 20px; }
+  main { gap: 8px; padding: 6px 16px 8px; }
+  .left, .right { gap: 7px; }
+  .card { padding: 5px 8px; }
+  .card h2 { font-size: 12px; margin-bottom: 3px; }
+  .code { font-size: 13.5px; line-height: 1.3; padding: 2px 0; }
+  .vars .v { font-size: 14px; padding: 1px 4px; }
+  .caption { font-size: 16px; min-height: 2.9em; padding: 6px 12px; }
+  .caption .math { font-size: 14px; }
+  .bars svg { height: 112px; }
+  .card.grow svg { min-height: 80px; }
+  footer { padding: 3px 16px 4px; font-size: 11.5px; }
+  #chart { min-height: 200px; }
+}
+@media (min-width: 1800px) and (min-height: 1000px) {
+  body { font-size: 18px; }
+  header h1 { font-size: 26px; }
+  select, button { font-size: 17px; }
+  .card h2 { font-size: 15px; }
+  .code { font-size: 19px; }
+  .vars .v { font-size: 19px; }
+  .caption { font-size: 21px; }
+  .caption .math { font-size: 18px; }
+  .bars svg { height: 200px; }
+}
+</style>
+<style>
+.card, .card.grow, .code, .vars { min-width: 0; }
+.vars .v .val { overflow-x: auto; white-space: nowrap; margin-left: 8px; }
+.vars .v.wide { grid-column: 1 / -1; }
+.bars { grid-template-columns: 1fr 1fr; }
+#scene { min-height: 300px; }
+.code { font-size: 14px; }
+input[type=range] { width: 9em; }
+@media (max-width: 900px) { #scene { min-height: 420px; } .bars { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Attention pooling, line by line</h1>
+  <p>Attention &middot; compare a query with every key, turn the scores into weights with a softmax, and average the values</p>
+</header>
+
+<div class="controls" role="toolbar" aria-label="Demo controls">
+  <div class="group">
+    <button id="bLine" class="primary">Next line<kbd>&rarr;</kbd></button>
+    <button id="bAll">Run all<kbd>F</kbd></button>
+    <button id="bReset">Reset<kbd>R</kbd></button>
+  </div>
+  <span class="sep" aria-hidden="true"></span>
+  <div class="group">
+    <label for="mode">Example</label>
+    <select id="mode">
+      <option value="nw" selected>Nadaraya–Watson regression (d2l 11.2)</option>
+      <option value="dot">dot-product attention, 4 keys (d2l 11.3)</option>
+    </select>
+  </div>
+  <div class="group" id="gNW">
+    <label for="qx">Query x</label><input id="qx" type="range" min="0" max="5" step="0.05" value="2.5">
+    <label for="sig">Width σ</label>
+    <select id="sig"><option>0.1</option><option selected>0.5</option><option>1</option><option>5</option></select>
+  </div>
+  <div class="group" id="gDot" style="display:none">
+    <label for="ang">Query direction</label><input id="ang" type="range" min="-180" max="180" step="5" value="60">
+    <label for="len">Length</label>
+    <select id="len"><option>0.5</option><option selected>1.41</option><option>4</option><option>10</option></select>
+  </div>
+</div>
+
+<main>
+  <section class="left">
+    <div class="card grow">
+      <svg id="scene" role="img" aria-label="The query, the keys with their attention weights, and the output"></svg>
+    </div>
+    <div class="caption" id="caption" aria-live="polite"></div>
+    <div class="bars">
+      <div class="card"><h2>Scores a(q, kᵢ)</h2><svg id="barS"></svg></div>
+      <div class="card"><h2>Attention weights αᵢ (softmax)</h2><svg id="barW"></svg></div>
+    </div>
+  </section>
+
+  <section class="right">
+    <div class="card grow">
+      <h2>attention.py</h2>
+      <div class="code" id="code"></div>
+    </div>
+    <div class="card">
+      <h2>Variables</h2>
+      <div class="vars" id="vars"></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  &copy; 2026 Kuk Jin Jang, Hongik University &middot;
+  <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>; commercial or
+  closed-source use by permission (<a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>) &middot;
+  the stepper follows the Week 4 demos, whose loop comes from
+  &ldquo;Machine Learning From Scratch, Part 1&rdquo; by
+  <a href="https://www.tiktok.com/@machinelearningtogo">@machinelearningtogo</a> on TikTok &middot;
+  the examples follow d2l.ai 11.1&ndash;11.3 (Nadaraya, 1964; Watson, 1964; Vaswani et al., 2017)
+</footer>
+
+<script>
+"use strict";
+// d2l 11.2's data: y = 2 sin(x) + x + noise, 40 examples (drawn once, as in the slides' figures)
+const NX = [0.014,0.083,0.142,0.168,0.205,0.621,0.675,0.878,1.349,1.499,1.551,1.789,1.918,1.945,2.113,2.429,2.627,2.707,2.718,3.033,3.077,3.185,3.236,3.252,3.353,3.428,3.442,3.607,3.647,3.648,4.066,4.079,4.287,4.316,4.447,4.564,4.670,4.675,4.904,4.986], NY = [-1.218,1.762,1.770,1.284,0.876,1.472,3.384,4.378,5.102,4.808,3.908,2.533,3.794,4.463,2.538,4.132,4.041,4.245,2.356,2.588,2.770,1.929,4.787,2.535,3.262,2.605,4.433,4.029,3.312,0.474,2.521,3.151,3.469,1.853,4.339,1.265,2.010,3.612,2.990,5.063];
+// d2l 11.3-style example: 4 keys in the plane with scalar values
+const DK = [[1, 0], [0, 1], [1, 1], [-1, 0]], DV = [1, 2, 3, 4];
+const mode = () => document.getElementById("mode").value;
+function setup() {
+  if (mode() === "nw") {
+    const q = +document.getElementById("qx").value, s = +document.getElementById("sig").value;
+    return { q, keys: NX, vals: NY, score: (k) => -((q - k) ** 2) / (2 * s * s), m: NX.length };
+  }
+  const a = +document.getElementById("ang").value * Math.PI / 180, L = +document.getElementById("len").value;
+  const q = [L * Math.cos(a), L * Math.sin(a)];
+  return { q, keys: DK, vals: DV, score: (k) => (q[0] * k[0] + q[1] * k[1]) / Math.sqrt(2), m: 4 };
+}
+let line, i, S;   // line of code, key index, the current computation
+function compute() {
+  S = setup();
+  S.a = S.keys.map(S.score);
+  const mx = Math.max(...S.a), e = S.a.map((x) => Math.exp(x - mx)), Z = e.reduce((p, x) => p + x, 0);
+  S.w = e.map((x) => x / Z);
+  S.out = S.w.reduce((p, w, j) => p + w * S.vals[j], 0);
+}
+function reset() { line = -1; i = -1; compute(); }
+function nextLine() {
+  if (line === -1) { line = 0; i = 0; }
+  else if (line === 0 && i < S.m - 1) i++;
+  else if (line === 0) line = 1;
+  else if (line === 1) line = 2;
+}
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const a in attrs) e.setAttribute(a, attrs[a]);
+  if (text !== undefined) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const shown = (j) => line > 0 || (line === 0 && j <= i);
+function drawScene() {
+  const svg = document.getElementById("scene"); svg.innerHTML = "";
+  const W = svg.clientWidth || 640, H = svg.clientHeight || 340; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  if (mode() === "nw") {
+    const x0 = 40, x1 = W - 20, y0 = 20, y1 = H - 40, X = (v) => x0 + v / 5 * (x1 - x0), Y = (v) => y1 - (v + 2) / 9 * (y1 - y0);
+    el("line", { x1: x0, x2: x1, y1: y1, y2: y1, stroke: css("--rule") }, svg);
+    for (let v = 0; v <= 5; v++) el("text", { x: X(v), y: y1 + 16, "text-anchor": "middle", "font-size": 11, fill: css("--muted") }, svg, v);
+    const t = []; for (let k = 0; k <= 100; k++) { const v = 5 * k / 100; t.push(`${k ? "L" : "M"}${X(v).toFixed(1)} ${Y(2 * Math.sin(v) + v).toFixed(1)}`); }
+    el("path", { d: t.join(""), fill: "none", stroke: css("--muted"), "stroke-dasharray": "5 4" }, svg);
+    if (line >= 2) {   // the whole estimate
+      const s = +document.getElementById("sig").value, p = [];
+      for (let k = 0; k <= 200; k++) { const v = 5 * k / 200, a = NX.map((x) => -((v - x) ** 2) / (2 * s * s)), m = Math.max(...a), e = a.map((z) => Math.exp(z - m)), Z = e.reduce((u, z) => u + z, 0);
+        p.push(`${k ? "L" : "M"}${X(v).toFixed(1)} ${Y(e.reduce((u, z, j) => u + z * NY[j], 0) / Z).toFixed(1)}`); }
+      el("path", { d: p.join(""), fill: "none", stroke: css("--err"), "stroke-width": 1.4, opacity: 0.6 }, svg);
+    }
+    const mw = Math.max(...S.w);
+    NX.forEach((x, j) => {
+      const r = line >= 1 ? 3 + 9 * Math.sqrt(S.w[j] / mw) : 3.5;
+      el("circle", { cx: X(x), cy: Y(NY[j]), r, fill: line >= 1 ? css("--err") : css("--line"), opacity: line >= 1 ? 0.25 + 0.75 * S.w[j] / mw : 0.8 }, svg);
+      if (line === 0 && j === i) el("circle", { cx: X(x), cy: Y(NY[j]), r: 9, fill: "none", stroke: css("--exact"), "stroke-width": 2 }, svg);
+    });
+    el("line", { x1: X(S.q), x2: X(S.q), y1: y0, y2: y1, stroke: css("--exact"), "stroke-width": 1.5 }, svg);
+    el("text", { x: X(S.q) + 4, y: y0 + 10, "font-size": 12, fill: css("--exact") }, svg, `query x = ${S.q.toFixed(2)}`);
+    if (line >= 2) el("circle", { cx: X(S.q), cy: Y(S.out), r: 6, fill: css("--err"), stroke: css("--bg"), "stroke-width": 2 }, svg);
+    el("text", { x: x0, y: H - 6, "font-size": 11.5, fill: css("--muted") }, svg, "points: the 40 (key xᵢ, value yᵢ) pairs, sized by their weight; dashed: 2 sin x + x; red curve: the estimate at every query");
+  } else {
+    const cx = W * 0.45, cy = H / 2, sc = Math.min(W * 0.8, H) / 4;
+    el("line", { x1: cx - 3 * sc, x2: cx + 3 * sc, y1: cy, y2: cy, stroke: css("--grid") }, svg);
+    el("line", { x1: cx, x2: cx, y1: cy - 3 * sc, y2: cy + 3 * sc, stroke: css("--grid") }, svg);
+    const mw = Math.max(...S.w);
+    DK.forEach((k, j) => {
+      const px = cx + k[0] * sc, py = cy - k[1] * sc, r = line >= 1 ? 6 + 14 * S.w[j] / mw : 7;
+      el("circle", { cx: px, cy: py, r, fill: line >= 1 ? css("--err") : css("--line"), opacity: 0.8 }, svg);
+      el("text", { x: px, y: py + 30, "text-anchor": "middle", "font-size": 13, fill: css("--ink") }, svg, `k${j + 1} (v = ${DV[j]})`);
+      if (line === 0 && j === i) el("circle", { cx: px, cy: py, r: 14, fill: "none", stroke: css("--exact"), "stroke-width": 2 }, svg);
+    });
+    const qx = Math.max(-3, Math.min(3, S.q[0])), qy = Math.max(-3, Math.min(3, S.q[1]));
+    el("line", { x1: cx, y1: cy, x2: cx + qx * sc, y2: cy - qy * sc, stroke: css("--exact"), "stroke-width": 3 }, svg);
+    el("text", { x: cx + qx * sc - 12, y: cy - qy * sc - 12, "text-anchor": "end", "font-size": 13, fill: css("--exact") }, svg, `q = (${S.q[0].toFixed(2)}, ${S.q[1].toFixed(2)})`);
+    el("text", { x: 10, y: H - 8, "font-size": 11.5, fill: css("--muted") }, svg, "keys sized by their weight; a longer query gives sharper weights");
+    if (line >= 2) el("text", { x: W - 16, y: 30, "text-anchor": "end", "font-size": 16, fill: css("--err") }, svg, `output = Σ αᵢ vᵢ = ${S.out.toFixed(2)}`);
+  }
+}
+function bars(id, vals, fmt, color) {
+  const svg = document.getElementById(id); svg.innerHTML = "";
+  const W = svg.clientWidth || 300, H = svg.clientHeight || 150; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const n = vals.length, bw = (W - 10) / n, finite = vals.filter((v, j) => shown(j));
+  if (!finite.length) { el("text", { x: 6, y: 20, "font-size": 13, fill: css("--muted") }, svg, "press → to start"); return; }
+  const mx = Math.max(...finite.map(Math.abs), 1e-9), zero = vals.some((v) => v < 0) ? H / 2 : H - 16;
+  vals.forEach((v, j) => {
+    if (!shown(j)) return;
+    const h = Math.abs(v) / mx * (zero === H / 2 ? H / 2 - 18 : H - 30);
+    el("rect", { x: 5 + j * bw + (n > 10 ? 0.5 : 4), y: v >= 0 ? zero - h : zero, width: bw - (n > 10 ? 1 : 8), height: Math.max(0.5, h), fill: line === 0 && j === i ? css("--exact") : color }, svg);
+    if (n <= 10) el("text", { x: 5 + j * bw + bw / 2, y: H - 3, "text-anchor": "middle", "font-size": 11.5, fill: css("--muted") }, svg, fmt(v));
+  });
+}
+const CODE = [
+  ["scores = [a(q, k) for k in keys]", "{SCORE}"],
+  ["weights = softmax(scores)", "# nonnegative, sum to 1 (d2l 11.1.3)"],
+  ["output = sum(w * v for w, v in zip(weights, values))", "# attention pooling (d2l 11.1.1)"],
+];
+function renderCode() {
+  const box = document.getElementById("code"); box.innerHTML = "";
+  CODE.forEach(([code, com], q) => {
+    const d = document.createElement("div"); d.className = "ln" + (q === line ? " on" : "");
+    const no = document.createElement("span"); no.className = "no"; no.textContent = q + 1;
+    const tx = document.createElement("span"); tx.textContent = code;
+    const c = document.createElement("span"); c.className = "c";
+    c.textContent = "  " + com.replace("{SCORE}", mode() === "nw" ? "# Gaussian: a = -(q - k)^2 / (2 sigma^2)" : "# scaled dot product: a = q . k / sqrt(d)");
+    tx.appendChild(c); d.append(no, tx); box.appendChild(d);
+  });
+}
+function caption() {
+  const c = document.getElementById("caption"), nw = mode() === "nw";
+  let m = "";
+  if (line === -1) m = nw ? "Each training example is a key (its x) with a value (its y). The query is a new x. Press → to compare it with the keys one at a time." :
+    "Four keys in the plane, each with a value. Press → to compare the query with each key. Turn the query, and change its length.";
+  else if (line === 0) { const k = S.keys[i];
+    m = nw ? `Key ${i + 1}: x = ${k.toFixed(2)}, distance ${Math.abs(S.q - k).toFixed(2)} from the query, score ${S.a[i].toFixed(2)}. Near keys score high.` :
+      `Key ${i + 1} = (${k[0]}, ${k[1]}): q · k / √2 = ${S.a[i].toFixed(3)}. Keys in the direction of the query score high.`; }
+  else if (line === 1) { const top = S.w.indexOf(Math.max(...S.w));
+    m = `The softmax turns the scores into weights that sum to 1. The largest, ${S.w[top].toFixed(3)}, is on key ${top + 1}${nw ? ` (x = ${S.keys[top].toFixed(2)})` : ""}.`; }
+  else m = nw ? `The output is the weighted average of the values: ${S.out.toFixed(3)} at x = ${S.q.toFixed(2)}; the true function gives ${(2 * Math.sin(S.q) + S.q).toFixed(3)}. Move the query, or change σ.` :
+    `The output is the weighted average of the values, ${S.out.toFixed(3)}: between the values, pulled towards the keys the query points at.`;
+  c.textContent = m;
+}
+function renderVars() {
+  const box = document.getElementById("vars"); box.innerHTML = "";
+  const add = (kk, v, wide) => { const d = document.createElement("div"); d.className = "v" + (wide ? " wide" : "");
+    d.innerHTML = `<span class="k">${kk}</span><span class="val">${v}</span>`; box.appendChild(d); };
+  add("keys m", S.m); add("key i", line === 0 ? i + 1 : "–");
+  add("a(q, kᵢ)", line === 0 ? S.a[i].toFixed(3) : "–"); add("largest weight", line >= 1 ? Math.max(...S.w).toFixed(3) : "–");
+  add("sum of weights", line >= 1 ? S.w.reduce((p, x) => p + x, 0).toFixed(3) : "–"); add("output", line >= 2 ? S.out.toFixed(3) : "–");
+  add("parameters", mode() === "nw" ? "none: the estimate needs no training (d2l 11.2)" : "none here; in a network q, k, v come from learned layers", true);
+}
+function render() {
+  document.getElementById("gNW").style.display = mode() === "nw" ? "" : "none"; document.getElementById("gDot").style.display = mode() === "nw" ? "none" : "";
+  compute(); drawScene();
+  bars("barS", S.a, (v) => v.toFixed(2), css("--line"));
+  if (line >= 1) bars("barW", S.w, (v) => v.toFixed(2), css("--err"));
+  else { const svg = document.getElementById("barW"); svg.innerHTML = ""; el("text", { x: 6, y: 20, "font-size": 13, fill: css("--muted") }, svg, "after all the scores (line 2)"); }
+  renderCode(); caption(); renderVars();
+}
+document.getElementById("bLine").onclick = () => { nextLine(); render(); };
+document.getElementById("bAll").onclick = () => { line = 2; render(); };
+document.getElementById("bReset").onclick = () => { reset(); render(); };
+document.getElementById("mode").onchange = () => { reset(); render(); };
+for (const id of ["qx", "sig", "ang", "len"]) document.getElementById(id).oninput = render;
+document.addEventListener("keydown", (x) => {
+  if (x.target.tagName === "SELECT" || x.target.tagName === "INPUT") return;
+  const k = x.key.toLowerCase();
+  if (k === "arrowright") { x.preventDefault(); document.getElementById("bLine").click(); }
+  else if (k === "f") document.getElementById("bAll").click();
+  else if (k === "r") document.getElementById("bReset").click();
+});
+window.addEventListener("resize", render);
+reset(); render();
+</script>
+</body>
+</html>

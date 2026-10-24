@@ -15,21 +15,21 @@ Published with GitHub Pages at <https://hongik-aicourses.github.io/ml-demos/>.
 | 5, Hour 3 | The multilayer perceptron | [week05-mlp/](https://hongik-aicourses.github.io/ml-demos/week05-mlp/) |
 | 5, make-up hour | Backpropagation | [week05-backprop/](https://hongik-aicourses.github.io/ml-demos/week05-backprop/) |
 | 6, Hour 3 | Training a deep network: the starting weights, the activation and the scale of the inputs | [week06-training/](https://hongik-aicourses.github.io/ml-demos/week06-training/) |
-| 7, Hour 1 | A bigram language model, line by line: counting letter pairs in 240 names, add-one smoothing, sampling and perplexity | [week07-bigram/](https://hongik-aicourses.github.io/ml-demos/week07-bigram/) |
-| 7, Hour 1 | Word vectors: nearest words, analogies and a two-dimensional map (GloVe 6B, 50 dimensions) | [week07-word-vectors/](https://hongik-aicourses.github.io/ml-demos/week07-word-vectors/) |
-| 7, Hour 2 | Training a character MLP language model: three letters of context, a two-number embedding per character, minibatch SGD line by line, a weight decay setting; the loss curves and sampled names | [week07-mlp-lm/](https://hongik-aicourses.github.io/ml-demos/week07-mlp-lm/) |
-| 8, Hour 1 | Byte pair encoding, merge by merge: d2l's four words or The Time Machine, the most frequent pair merged, the segmentation of a new word | [week08-bpe/](https://hongik-aicourses.github.io/ml-demos/week08-bpe/) |
-| 8, Hour 3 | A recurrent language model, step by step: the hidden state after each character, backpropagation through time, gradient clipping, sampled names | [week08-rnn/](https://hongik-aicourses.github.io/ml-demos/week08-rnn/) |
-| 8, make-up | How much to trust a test loss: test sets drawn from per-token losses, the standard error, the normal curve, how often 95% intervals contain the mean | [error-bars/](https://hongik-aicourses.github.io/ml-demos/error-bars/) |
-| 9, Hour 1 | Attention pooling, line by line: Nadaraya-Watson regression and scaled dot-product attention; scores, softmax weights, the weighted average | [week09-attention/](https://hongik-aicourses.github.io/ml-demos/week09-attention/) |
-| 9, Hour 2 | Self-attention on a sentence: queries, keys and values, the causal mask, the softmax row by row, RoPE and its invariance to shifting positions | [week09-self-attention/](https://hongik-aicourses.github.io/ml-demos/week09-self-attention/) |
-| 9, Hour 3 | Why the block has a residual stream: activations and gradients through a deep stack, plain or residual, with or without RMSNorm | [week09-block/](https://hongik-aicourses.github.io/ml-demos/week09-block/) |
-| 9, make-up | Fine-tuning a model to follow a prompt: prompt tokens as new rows, the loss masked on the prompt, sampled names before and after SFT | [instruction-tuning/](https://hongik-aicourses.github.io/ml-demos/instruction-tuning/) |
-| 11, Hour 1 | Optimizers in a canyon: gradient descent, momentum and Adam on d2l's ill-conditioned function | [week11-optimizers/](https://hongik-aicourses.github.io/ml-demos/week11-optimizers/) |
-| 11, Hour 2 | Sampling from a language model: the decode loop one character at a time, temperature, top-k, top-p, greedy decoding | [week11-sampling/](https://hongik-aicourses.github.io/ml-demos/week11-sampling/) |
+| 9, Hour 1 | A bigram language model, line by line: counting letter pairs in 240 names, add-one smoothing, sampling and perplexity | [week09-bigram/](https://hongik-aicourses.github.io/ml-demos/week09-bigram/) |
+| 9, Hour 1 | Word vectors: nearest words, analogies and a two-dimensional map (GloVe 6B, 50 dimensions) | [week09-word-vectors/](https://hongik-aicourses.github.io/ml-demos/week09-word-vectors/) |
+| 9, Hour 2 | Training a character MLP language model: three letters of context, a two-number embedding per character, minibatch SGD line by line, a weight decay setting; the loss curves and sampled names | [week09-mlp-lm/](https://hongik-aicourses.github.io/ml-demos/week09-mlp-lm/) |
+| 10, Hour 1 | Byte pair encoding, merge by merge: d2l's four words or The Time Machine, the most frequent pair merged, the segmentation of a new word | [week10-bpe/](https://hongik-aicourses.github.io/ml-demos/week10-bpe/) |
+| 10, Hour 3 | A recurrent language model, step by step: the hidden state after each character, backpropagation through time, gradient clipping, sampled names | [week10-rnn/](https://hongik-aicourses.github.io/ml-demos/week10-rnn/) |
+| 10, make-up | How much to trust a test loss: test sets drawn from per-token losses, the standard error, the normal curve, how often 95% intervals contain the mean | [error-bars/](https://hongik-aicourses.github.io/ml-demos/error-bars/) |
+| 11, Hour 1 | Attention pooling, line by line: Nadaraya-Watson regression and scaled dot-product attention; scores, softmax weights, the weighted average | [week11-attention/](https://hongik-aicourses.github.io/ml-demos/week11-attention/) |
+| 11, Hour 2 | Self-attention on a sentence: queries, keys and values, the causal mask, the softmax row by row, RoPE and its invariance to shifting positions | [week11-self-attention/](https://hongik-aicourses.github.io/ml-demos/week11-self-attention/) |
+| 11, Hour 3 | Why the block has a residual stream: activations and gradients through a deep stack, plain or residual, with or without RMSNorm | [week11-block/](https://hongik-aicourses.github.io/ml-demos/week11-block/) |
+| 11, make-up | Fine-tuning a model to follow a prompt: prompt tokens as new rows, the loss masked on the prompt, sampled names before and after SFT | [instruction-tuning/](https://hongik-aicourses.github.io/ml-demos/instruction-tuning/) |
+| 13, Hour 1 | Optimizers in a canyon: gradient descent, momentum and Adam on d2l's ill-conditioned function | [week13-optimizers/](https://hongik-aicourses.github.io/ml-demos/week13-optimizers/) |
+| 13, Hour 2 | Sampling from a language model: the decode loop one character at a time, temperature, top-k, top-p, greedy decoding | [week13-sampling/](https://hongik-aicourses.github.io/ml-demos/week13-sampling/) |
 | later | Regularization: weight decay and L1 on a polynomial | [week06-regularization/](https://hongik-aicourses.github.io/ml-demos/week06-regularization/) |
-| later | A convolution, line by line: a 3 &times; 3 filter over a picture, then a causal filter over a sentence | [convolution/](https://hongik-aicourses.github.io/ml-demos/convolution/) |
-| later | A small CNN learns its own filters: 8 filters on handwritten digits, next to softmax regression, with moved digits | [cnn-digits/](https://hongik-aicourses.github.io/ml-demos/cnn-digits/) |
+| 10, Hour 2 | A convolution, line by line: a 3 &times; 3 filter over a picture, then a causal filter over a sentence | [convolution/](https://hongik-aicourses.github.io/ml-demos/convolution/) |
+| 10, Hour 2 | A small CNN learns its own filters: 8 filters on handwritten digits, next to softmax regression, with moved digits | [cnn-digits/](https://hongik-aicourses.github.io/ml-demos/cnn-digits/) |
 | later | Naive Bayes spam filter, clue by clue | [naive-bayes/](https://hongik-aicourses.github.io/ml-demos/naive-bayes/) |
 
 ## Where the files come from

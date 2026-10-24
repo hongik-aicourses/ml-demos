@@ -3,20 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Why the Block Has a Residual Stream</title>
-<meta name="description" content="Transformer block demo: random inputs go forward through a deep stack of tanh layers and the gradient comes back, layer by layer; with plain layers the signal and the gradient shrink, with residual connections they pass, and RMSNorm keeps the stream's size in check.">
+<title>Optimizers in a Canyon</title>
+<meta name="description" content="Optimizers demo: gradient descent, momentum and Adam take steps side by side on d2l's ill-conditioned function f(x) = 0.1 x1^2 + 2 x2^2; learning rate and momentum settings, the paths, f after each step and the size of each step per coordinate.">
 <!--
   (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
   licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
   Commercial use, closed-source use, or any other licensing: by permission,
   jangkj@hongik.ac.kr.
 
-  Week 9, Hour 3 demo (calendar Week 11, Thu 12 Nov) --- why the block has a residual stream.
-  32 random inputs of 64 numbers pass through L layers h <- tanh(W norm(h)) (plain) or
-  h <- h + tanh(W norm(h)) (residual), with W ~ N(0, (gain / sqrt(d))^2), gain 1/sqrt(3) by default (the standard deviation of PyTorch's default initialization) and optional RMSNorm, as at the
-  start of training; the gradient of a fixed random loss comes back. The page draws the RMS of the
-  activations after every layer and of the gradient at every layer, on log scales (d2l 8.5, 8.6, 11.7).
-  Keys: Right arrow = next layer, F = run all, R = reset.
+  Week 13, Hour 1 demo (Tue 24 Nov) --- gradient descent, momentum and Adam in a canyon.
+  d2l 12.6.1.2's function f(x) = 0.1 x1^2 + 2 x2^2 from (-5, -2): gradient descent (eta 0.4 converges slowly along
+  x1, 0.6 diverges along x2), momentum (v <- beta v + g, x <- x - eta v; d2l's eta 0.6, beta 0.5 converges), and
+  Adam with bias correction (b1 0.9, b2 0.999; d2l 12.10).
+  Keys: Right arrow = next step, F = 20 steps, R = reset.
   One self-contained file: no server, no network, no libraries.
 -->
 <style>
@@ -196,49 +195,49 @@ footer a { color: var(--line); }
 .bars { grid-template-columns: 1fr 1fr; }
 #scene { min-height: 300px; }
 .code { font-size: 14px; }
-@media (max-width: 900px) { #scene { min-height: 460px; } .bars { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { #scene { min-height: 380px; } .bars { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
 <header>
-  <h1>Why the block has a residual stream</h1>
-  <p>The transformer block &middot; send a signal forward through a deep stack and its gradient back, with and without residual connections and normalization</p>
+  <h1>Gradient descent, momentum and Adam in a canyon</h1>
+  <p>Training language models &middot; three optimizers on d2l's ill-conditioned function f(x) = 0.1 x₁² + 2 x₂², step by step</p>
 </header>
 
 <div class="controls" role="toolbar" aria-label="Demo controls">
   <div class="group">
-    <button id="bLine" class="primary">Next layer<kbd>&rarr;</kbd></button>
-    <button id="bAll">Run all<kbd>F</kbd></button>
+    <button id="bLine" class="primary">Next step<kbd>&rarr;</kbd></button>
+    <button id="bAll">20 steps<kbd>F</kbd></button>
     <button id="bReset">Reset<kbd>R</kbd></button>
   </div>
   <span class="sep" aria-hidden="true"></span>
   <div class="group">
-    <label for="L">Layers</label>
-    <select id="L"><option>2</option><option>8</option><option selected>20</option><option>50</option></select>
-    <label for="res">Residual</label>
-    <select id="res"><option value="0" selected>off</option><option value="1">on</option></select>
-    <label for="norm">RMSNorm</label>
-    <select id="norm"><option value="0" selected>off</option><option value="1">on</option></select>
-    <label for="gain">Weight scale</label>
-    <select id="gain"><option value="0.57735" selected>1 / √(3d) (PyTorch's default)</option><option value="1">1 / √d</option><option value="2">2 / √d</option></select>
+    <label for="eta">Learning rate η</label>
+    <select id="eta"><option>0.1</option><option selected>0.4</option><option>0.6</option></select>
+    <label for="beta">Momentum β</label>
+    <select id="beta"><option>0.25</option><option selected>0.5</option><option>0.9</option></select>
+    <label for="aeta">Adam η</label>
+    <select id="aeta"><option>0.1</option><option selected>0.5</option><option>1</option></select>
+    <label for="code">Code shown</label>
+    <select id="codeSel"><option value="gd">gradient descent</option><option value="mom" selected>momentum</option><option value="adam">Adam</option></select>
   </div>
 </div>
 
 <main>
   <section class="left">
     <div class="card grow">
-      <svg id="scene" role="img" aria-label="The size of the activations after each layer, and of the gradients at each layer"></svg>
+      <svg id="scene" role="img" aria-label="Contours of f and the paths of the three optimizers"></svg>
     </div>
     <div class="caption" id="caption" aria-live="polite"></div>
     <div class="bars">
-      <div class="card"><h2>Activations of the last layer reached</h2><svg id="barA"></svg></div>
-      <div class="card"><h2>Gradient: first layer against last</h2><svg id="barG"></svg></div>
+      <div class="card"><h2>f(x) after each step (log scale)</h2><svg id="barF"></svg></div>
+      <div class="card"><h2>The size of the last step in x₁ and x₂</h2><svg id="barS"></svg></div>
     </div>
   </section>
 
   <section class="right">
     <div class="card grow">
-      <h2>stack.py</h2>
+      <h2 id="codeTitle">momentum.py</h2>
       <div class="code" id="code"></div>
     </div>
     <div class="card">
@@ -255,45 +254,30 @@ footer a { color: var(--line); }
   the stepper follows the Week 4 demos, whose loop comes from
   &ldquo;Machine Learning From Scratch, Part 1&rdquo; by
   <a href="https://www.tiktok.com/@machinelearningtogo">@machinelearningtogo</a> on TikTok &middot;
-  residual connections and normalization follow d2l.ai 8.5, 8.6 and 11.7; RMSNorm: Zhang &amp; Sennrich (2019)
+  the function and the optimizers follow d2l.ai 12.3, 12.6 and 12.10
 </footer>
 
 <script>
 "use strict";
-const D = 64, B = 32;
-function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
-  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
-const opt = () => ({ L: +document.getElementById("L").value, res: document.getElementById("res").value === "1",
-  norm: document.getElementById("norm").value === "1", gain: +document.getElementById("gain").value });
-const rms = (M) => Math.sqrt(M.reduce((s, r) => s + r.reduce((t, x) => t + x * x, 0), 0) / (M.length * M[0].length));
-let R, step;   // step: 0..L forward layers, then L+1..2L backward
-function compute() {
-  const o = opt(), rand = rng(3), gauss = () => Math.sqrt(-2 * Math.log(1 - rand())) * Math.cos(2 * Math.PI * rand());
-  const Ws = Array.from({ length: o.L }, () => Array.from({ length: D }, () => Array.from({ length: D }, () => gauss() * o.gain / Math.sqrt(D))));
-  let h = Array.from({ length: B }, () => Array.from({ length: D }, gauss));
-  const hs = [h], cache = [];
-  for (let l = 0; l < o.L; l++) {
-    const W = Ws[l];
-    const r = h.map((row) => Math.sqrt(row.reduce((s, x) => s + x * x, 0) / D + 1e-6));
-    const z = o.norm ? h.map((row, i) => row.map((x) => x / r[i])) : h;
-    const a = z.map((row) => W.map((wr) => Math.tanh(wr.reduce((s, w, k) => s + w * row[k], 0))));
-    const hn = o.res ? h.map((row, i) => row.map((x, j) => x + a[i][j])) : a;
-    cache.push({ z, a, r, hin: h }); h = hn; hs.push(h);
-  }
-  // backward from a loss whose gradient with respect to the last activations is a fixed random matrix
-  let g = Array.from({ length: B }, () => Array.from({ length: D }, () => gauss() / Math.sqrt(D)));
-  const gs = new Array(o.L + 1); gs[o.L] = g;
-  for (let l = o.L - 1; l >= 0; l--) {
-    const { z, a, r } = cache[l], W = Ws[l];
-    const du = a.map((row, i) => row.map((v, j) => g[i][j] * (1 - v * v)));
-    let dz = du.map((row) => z[0].map((_, k) => row.reduce((s, d, j) => s + d * W[j][k], 0)));
-    if (o.norm) dz = dz.map((row, i) => { const m = row.reduce((s, d, k) => s + d * z[i][k], 0) / D; return row.map((d, k) => (d - z[i][k] * m) / r[i]); });
-    g = o.res ? g.map((row, i) => row.map((v, k) => v + dz[i][k])) : dz;
-    gs[l] = g;
-  }
-  R = { o, act: hs.map(rms), grad: gs.map(rms) };
+const grad = (x) => [0.2 * x[0], 4 * x[1]], f = (x) => 0.1 * x[0] * x[0] + 2 * x[1] * x[1];
+const val = (id) => +document.getElementById(id).value;
+let t, S;
+function reset() {
+  t = 0;
+  S = { gd: { x: [-5, -2], P: [[-5, -2]] }, mom: { x: [-5, -2], v: [0, 0], P: [[-5, -2]] }, adam: { x: [-5, -2], v: [0, 0], s: [0, 0], P: [[-5, -2]] } };
 }
-function reset() { step = 0; compute(); }
+function step() {
+  t++;
+  const eta = val("eta"), beta = val("beta"), ae = val("aeta"), b1 = 0.9, b2 = 0.999;
+  let g = grad(S.gd.x); S.gd.last = g.map((gi) => eta * gi); S.gd.x = S.gd.x.map((xi, i) => xi - eta * g[i]); S.gd.P.push(S.gd.x.slice());
+  g = grad(S.mom.x); S.mom.v = S.mom.v.map((vi, i) => beta * vi + g[i]); S.mom.last = S.mom.v.map((vi) => eta * vi);
+  S.mom.x = S.mom.x.map((xi, i) => xi - eta * S.mom.v[i]); S.mom.P.push(S.mom.x.slice());
+  g = grad(S.adam.x); const A = S.adam;
+  A.v = A.v.map((vi, i) => b1 * vi + (1 - b1) * g[i]); A.s = A.s.map((si, i) => b2 * si + (1 - b2) * g[i] * g[i]);
+  const vh = A.v.map((vi) => vi / (1 - Math.pow(b1, t))), sh = A.s.map((si) => si / (1 - Math.pow(b2, t)));
+  A.last = vh.map((v, i) => ae * v / (Math.sqrt(sh[i]) + 1e-6)); A.x = A.x.map((xi, i) => xi - A.last[i]); A.P.push(A.x.slice());
+  A.g = g; S.gd.g = grad(S.gd.P[S.gd.P.length - 2]);
+}
 const NS = "http://www.w3.org/2000/svg";
 function el(tag, attrs, parent, text) {
   const e = document.createElementNS(NS, tag);
@@ -303,54 +287,55 @@ function el(tag, attrs, parent, text) {
   return e;
 }
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-function panel(svg, x0, y0, w, h, vals, upto, col, title, fromEnd) {
-  el("text", { x: x0, y: y0 - 8, "font-size": 12, fill: css("--muted") }, svg, title);
-  el("rect", { x: x0, y: y0, width: w, height: h, fill: "none", stroke: css("--rule") }, svg);
-  const lo = -6, hi = 2, Y = (v) => y0 + h - (Math.min(hi, Math.max(lo, Math.log10(Math.max(v, 1e-12)))) - lo) / (hi - lo) * h;
-  for (let e = lo; e <= hi; e += 2) { el("line", { x1: x0, x2: x0 + w, y1: Y(10 ** e), y2: Y(10 ** e), stroke: css("--grid") }, svg);
-    el("text", { x: x0 - 4, y: Y(10 ** e) + 4, "text-anchor": "end", "font-size": 10.5, fill: css("--muted") }, svg, `1e${e}`); }
-  const n = vals.length, bw = w / n;
-  vals.forEach((v, i) => { const on = fromEnd ? i >= n - upto : i < upto; if (!on) return;
-    el("rect", { x: x0 + i * bw + 0.5, y: Y(v), width: Math.max(1, bw - 1), height: y0 + h - Y(v), fill: col }, svg); });
-  el("text", { x: x0, y: y0 + h + 14, "font-size": 10.5, fill: css("--muted") }, svg, "input");
-  el("text", { x: x0 + w, y: y0 + h + 14, "text-anchor": "end", "font-size": 10.5, fill: css("--muted") }, svg, `layer ${n - 1}`);
-}
+const COLS = () => ({ gd: css("--err"), mom: css("--pos"), adam: css("--line") });
+const NAMES = { gd: "gradient descent", mom: "momentum", adam: "Adam" };
 function drawScene() {
   const svg = document.getElementById("scene"); svg.innerHTML = "";
   const W = svg.clientWidth || 640, H = svg.clientHeight || 340; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  const L = R.o.L, narrow = W < 560;
-  const pw = narrow ? W - 60 : (W - 110) / 2, ph = narrow ? H / 2 - 50 : H - 70;
-  panel(svg, 45, 30, pw, ph, R.act, Math.min(step, L) + 1, css("--line"), "forward: size (RMS) of the activations after each layer, log scale", false);
-  const back = Math.max(0, step - L);
-  panel(svg, narrow ? 45 : 45 + pw + 55, narrow ? 30 + ph + 50 : 30, pw, ph, R.grad, back ? back + 1 : 0, css("--err"), "backward: size of the gradient at each layer", true);
+  const xr = [-5.6, 1.6], yr = [-3, 3], X = (v) => 30 + (v - xr[0]) / (xr[1] - xr[0]) * (W - 50), Y = (v) => 20 + (yr[1] - v) / (yr[1] - yr[0]) * (H - 50);
+  for (const lv of [0.1, 0.4, 1, 2, 4, 8, 14]) {   // ellipses 0.1 x^2 + 2 y^2 = lv
+    const a = Math.sqrt(lv / 0.1), b = Math.sqrt(lv / 2), pts = [];
+    for (let k = 0; k <= 100; k++) { const th = 2 * Math.PI * k / 100; pts.push(`${k ? "L" : "M"}${X(a * Math.cos(th)).toFixed(1)} ${Y(b * Math.sin(th)).toFixed(1)}`); }
+    el("path", { d: pts.join(""), fill: "none", stroke: css("--grid"), "stroke-width": 1.2 }, svg);
+  }
+  el("circle", { cx: X(0), cy: Y(0), r: 4, fill: css("--ink") }, svg);
+  const C = COLS();
+  for (const k of ["gd", "mom", "adam"]) {
+    const P = S[k].P.map((p) => [Math.max(-8, Math.min(8, p[0])), Math.max(-6, Math.min(6, p[1]))]);
+    el("path", { d: P.map((p, i) => (i ? "L" : "M") + X(p[0]).toFixed(1) + " " + Y(p[1]).toFixed(1)).join(""), fill: "none", stroke: C[k], "stroke-width": 2 }, svg);
+    P.forEach((p) => el("circle", { cx: X(p[0]), cy: Y(p[1]), r: 2.6, fill: C[k] }, svg));
+  }
+  ["gd", "mom", "adam"].forEach((k, i) => { el("rect", { x: W - 175, y: 18 + i * 18, width: 12, height: 4, fill: C[k] }, svg);
+    el("text", { x: W - 158, y: 24 + i * 18, "font-size": 12, fill: css("--ink") }, svg, NAMES[k]); });
+  el("text", { x: 30, y: H - 8, "font-size": 11.5, fill: css("--muted") }, svg, "contours of f; the minimum at (0, 0); all three start at (−5, −2)");
 }
-function bars() {
-  const sa = document.getElementById("barA"); sa.innerHTML = "";
-  const W = sa.clientWidth || 300, H = sa.clientHeight || 150; sa.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  const l = Math.min(step, R.o.L);
-  el("text", { x: 8, y: 30, "font-size": 15, fill: css("--ink") }, sa, `after layer ${l}: RMS ${R.act[l].toExponential(2)}`);
-  el("text", { x: 8, y: 56, "font-size": 13, fill: css("--muted") }, sa, `input RMS ${R.act[0].toFixed(2)}`);
-  const sg = document.getElementById("barG"); sg.innerHTML = "";
-  sg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  if (step <= R.o.L) { el("text", { x: 8, y: 30, "font-size": 13, fill: css("--muted") }, sg, "after the backward pass"); return; }
-  const back = step - R.o.L, first = R.o.L - back;
-  el("text", { x: 8, y: 30, "font-size": 15, fill: css("--ink") }, sg, `at layer ${first}: ${R.grad[first].toExponential(2)}`);
-  el("text", { x: 8, y: 56, "font-size": 13, fill: css("--muted") }, sg, `at the last layer: ${R.grad[R.o.L].toExponential(2)}`);
-  if (first === 0) el("text", { x: 8, y: 82, "font-size": 13, fill: css("--err") }, sg, `ratio first / last: ${(R.grad[0] / R.grad[R.o.L]).toExponential(1)}`);
+function drawF() {
+  const svg = document.getElementById("barF"); svg.innerHTML = "";
+  const W = svg.clientWidth || 300, H = svg.clientHeight || 150; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const C = COLS(), T = Math.max(20, t), lo = -6, hi = 4, X = (s) => 8 + s / T * (W - 16), Y = (v) => H - 8 - (Math.min(hi, Math.max(lo, Math.log10(Math.max(v, 1e-12)))) - lo) / (hi - lo) * (H - 16);
+  for (const k of ["gd", "mom", "adam"]) el("path", { d: S[k].P.map((p, i) => (i ? "L" : "M") + X(i).toFixed(1) + " " + Y(f(p)).toFixed(1)).join(""), fill: "none", stroke: C[k], "stroke-width": 2 }, svg);
 }
-const CODE = [
-  ["for layer in layers:", ""],
-  ["    z = rms_norm(h) if use_norm else h", "# h / sqrt(mean(h^2))"],
-  ["    a = tanh(z @ W.T)", "# W at random, with the chosen scale"],
-  ["    h = h + a if residual else a", "# the residual stream adds"],
-  ["loss.backward()", "# the gradient goes back through every layer"],
-];
+function drawS() {
+  const svg = document.getElementById("barS"); svg.innerHTML = "";
+  const W = svg.clientWidth || 300, H = svg.clientHeight || 150; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  if (!t) { el("text", { x: 6, y: 20, "font-size": 13, fill: css("--muted") }, svg, "after the first step"); return; }
+  const C = COLS(), ks = ["gd", "mom", "adam"], gw = (W - 20) / 3, L = (v) => Math.max(0, Math.min(1, (Math.log10(Math.max(Math.abs(v), 1e-4)) + 4) / 6));
+  el("text", { x: W - 6, y: 12, "text-anchor": "end", "font-size": 10.5, fill: css("--muted") }, svg, "log scale, 1e-4 to 100");
+  ks.forEach((k, j) => S[k].last.forEach((v, i) => { const h = L(v) * (H - 40), x = 10 + j * gw + 8 + i * (gw - 16) / 2;
+    el("rect", { x, y: H - 22 - h, width: (gw - 16) / 2 - 3, height: h, fill: C[k], opacity: i ? 1 : 0.55 }, svg);
+    el("text", { x: x + (gw - 16) / 4 - 1, y: H - 8, "text-anchor": "middle", "font-size": 11, fill: css("--muted") }, svg, i ? "x₂" : "x₁"); }));
+}
+const CODE = {
+  gd: [["g = grad(x)", ""], ["x = x - eta * g", "# the same eta in every direction"]],
+  mom: [["g = grad(x)", ""], ["v = beta * v + g", "# a leaky average of the gradients (d2l 12.6)"], ["x = x - eta * v", "# a step of about eta / (1 - beta) along steady directions"]],
+  adam: [["g = grad(x)", ""], ["v = b1 * v + (1 - b1) * g", "# first moment, b1 = 0.9"], ["s = b2 * s + (1 - b2) * g**2", "# second moment, b2 = 0.999"],
+         ["v_hat, s_hat = v / (1 - b1**t), s / (1 - b2**t)", "# correct the bias towards 0"], ["x = x - eta * v_hat / (sqrt(s_hat) + eps)", "# a step size per coordinate (d2l 12.10)"]],
+};
 function renderCode() {
-  const box = document.getElementById("code"); box.innerHTML = "";
-  const L = R.o.L, on = step === 0 ? new Set() : step <= L ? new Set([1, 2, 3]) : new Set([4]);
-  CODE.forEach(([code, com], q) => {
-    const off = (q === 1 && !R.o.norm);
-    const dv = document.createElement("div"); dv.className = "ln" + (on.has(q) ? " on" : ""); if (off) dv.style.opacity = 0.4;
+  const k = document.getElementById("codeSel").value, box = document.getElementById("code"); box.innerHTML = "";
+  document.getElementById("codeTitle").textContent = { gd: "gradient_descent.py", mom: "momentum.py", adam: "adam.py" }[k];
+  CODE[k].forEach(([code, com], q) => {
+    const dv = document.createElement("div"); dv.className = "ln" + (t > 0 ? " on" : "");
     const no = document.createElement("span"); no.className = "no"; no.textContent = q + 1;
     const tx = document.createElement("span"); tx.textContent = code;
     if (com) { const c = document.createElement("span"); c.className = "c"; c.textContent = "  " + com; tx.appendChild(c); }
@@ -358,29 +343,30 @@ function renderCode() {
   });
 }
 function caption() {
-  const c = document.getElementById("caption"), o = R.o, L = o.L;
-  let m;
-  if (step === 0) m = `${B} random inputs of ${D} numbers go through ${L} layers with random weights, as at the start of training. Press → to go layer by layer.`;
-  else if (step <= L) m = o.res ? `Layer ${step}: the stream keeps its old value and adds the layer's output; its size ${o.norm ? "grows slowly, since each layer reads a normalized copy" : "grows layer by layer"}.` :
-    `Layer ${step}: each layer replaces the signal. ${R.act[step] < 0.1 * R.act[0] ? "It has shrunk to " + (R.act[step] / R.act[0]).toFixed(3) + " of its input size." : ""}`;
-  else { const back = step - L, first = L - back, ratio = R.grad[first] / R.grad[L];
-    m = first === 0 ? (o.res ? `The gradient reaches the first layer at ${ratio.toFixed(2)} times its size at the last: the addition passes it back unchanged, plus the layers' parts.` :
-      `The gradient at the first layer is ${ratio.toExponential(1)} times that at the last: each layer multiplies it by a factor below 1, so the early layers barely learn.`) :
-      `Backward through layer ${first + 1}.`; }
+  const c = document.getElementById("caption"), eta = val("eta");
+  if (!t) { c.textContent = "f is flat along x₁ and steep along x₂: a canyon. Press → to take one step with each optimizer."; return; }
+  const fg = f(S.gd.x), fm = f(S.mom.x), fa = f(S.adam.x);
+  let m = `Step ${t}: f = ${fg.toExponential(1)} (gradient descent), ${fm.toExponential(1)} (momentum), ${fa.toExponential(1)} (Adam).`;
+  if (eta >= 0.5 && Math.abs(S.gd.x[1]) > 2) m += " With η = " + eta + " gradient descent diverges along the steep x₂: η × 4 > 2.";
+  else if (t >= 5 && Math.abs(S.gd.x[0]) > 1) m += " Gradient descent crawls along the flat x₁; momentum accumulates the steady gradient there.";
+  if (t === 1) m += " Adam's first step is η in each coordinate, whatever the size of the gradient.";
   c.textContent = m;
 }
 function renderVars() {
   const box = document.getElementById("vars"); box.innerHTML = "";
   const add = (kk, v, wide) => { const dv = document.createElement("div"); dv.className = "v" + (wide ? " wide" : "");
     dv.innerHTML = `<span class="k">${kk}</span><span class="val">${v}</span>`; box.appendChild(dv); };
-  add("layers", R.o.L); add("width d", D); add("residual", R.o.res ? "on" : "off"); add("RMSNorm", R.o.norm ? "on" : "off");
-  add("activation RMS, last", R.act[R.o.L].toExponential(2)); add("gradient RMS, first", R.grad[0].toExponential(2), false);
+  const fmt = (x) => `(${x[0].toFixed(3)}, ${x[1].toFixed(3)})`;
+  add("t", t); add("η, β", `${val("eta")}, ${val("beta")}`);
+  add("x, gradient descent", fmt(S.gd.x), true); add("x, momentum", fmt(S.mom.x), true); add("x, Adam", fmt(S.adam.x), true);
+  add("v (momentum)", fmt(S.mom.v), true);
 }
-function render() { compute(); drawScene(); bars(); renderCode(); caption(); renderVars(); }
-document.getElementById("bLine").onclick = () => { step = Math.min(step + 1, 2 * R.o.L); render(); };
-document.getElementById("bAll").onclick = () => { step = 2 * R.o.L; render(); };
+function render() { drawScene(); drawF(); drawS(); renderCode(); caption(); renderVars(); }
+document.getElementById("bLine").onclick = () => { step(); render(); };
+document.getElementById("bAll").onclick = () => { for (let i = 0; i < 20; i++) step(); render(); };
 document.getElementById("bReset").onclick = () => { reset(); render(); };
-for (const id of ["L", "res", "norm", "gain"]) document.getElementById(id).onchange = () => { reset(); render(); };
+for (const id of ["eta", "beta", "aeta"]) document.getElementById(id).onchange = () => { reset(); render(); };
+document.getElementById("codeSel").onchange = render;
 document.addEventListener("keydown", (x) => {
   if (x.target.tagName === "SELECT" || x.target.tagName === "INPUT") return;
   const k = x.key.toLowerCase();

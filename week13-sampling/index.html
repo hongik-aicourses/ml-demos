@@ -11,9 +11,9 @@
   Commercial use, closed-source use, or any other licensing: by permission,
   jangkj@hongik.ac.kr.
 
-  Week 11, Hour 2 demo (calendar Week 13, Wed 25 Nov) --- sampling from a language model.
+  Week 13, Hour 2 demo (Wed 25 Nov) --- sampling from a language model.
   The base character RNN of the instruction-tuning demo (64 tanh units, trained on 204 names; weights from
-  lectures/current/figures/data/wk09sft_runs.json, four decimals). The decode loop one character at a time:
+  lectures/current/figures/data/wk11sft_runs.json, four decimals). The decode loop one character at a time:
   softmax(logits / T), top-k and top-p filters, sampling or greedy decoding (d2l 10.8).
   Keys: Right arrow = next token, N = whole name, M = 20 names, R = reset.
   One self-contained file: no server, no network, no libraries.

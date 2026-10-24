@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Optimizers in a Canyon</title>
+<meta name="description" content="Optimizers demo: gradient descent, momentum and Adam take steps side by side on d2l's ill-conditioned function f(x) = 0.1 x1^2 + 2 x2^2; learning rate and momentum settings, the paths, f after each step and the size of each step per coordinate.">
+<!--
+  (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
+  licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
+  Commercial use, closed-source use, or any other licensing: by permission,
+  jangkj@hongik.ac.kr.
+
+  Week 11, Hour 1 demo (calendar Week 13, Tue 24 Nov) --- gradient descent, momentum and Adam in a canyon.
+  d2l 12.6.1.2's function f(x) = 0.1 x1^2 + 2 x2^2 from (-5, -2): gradient descent (eta 0.4 converges slowly along
+  x1, 0.6 diverges along x2), momentum (v <- beta v + g, x <- x - eta v; d2l's eta 0.6, beta 0.5 converges), and
+  Adam with bias correction (b1 0.9, b2 0.999; d2l 12.10).
+  Keys: Right arrow = next step, F = 20 steps, R = reset.
+  One self-contained file: no server, no network, no libraries.
+-->
+<style>
+:root {
+  --bg: #ffffff;
+  --panel: #f4f5f7;
+  --ink: #1a1a1a;
+  --muted: #5b6068;
+  --rule: #d9dce1;
+  --grid: #eceef1;
+  --line: #2f6fbf;
+  --err: #c00000;
+  --pos: #1e8e5a;
+  --exact: #b7791f;
+  --hl: #fff1c2;
+  --hl-ink: #1a1a1a;
+  --btn: #ffffff;
+  --btn-ink: #1a1a1a;
+  --btn-edge: #b9bec6;
+  --btn-primary: #2f6fbf;
+  --btn-primary-ink: #ffffff;
+  --code-bg: #fbfbfc;
+  --comment: #8a8f98;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418;
+    --panel: #1a1f26;
+    --ink: #e8eaed;
+    --muted: #9aa3ae;
+    --rule: #2c333c;
+    --grid: #222931;
+    --line: #6ea8ff;
+    --err: #ff6b6b;
+    --pos: #4fcf8e;
+    --exact: #e0b04f;
+    --hl: #3a3320;
+    --hl-ink: #fff4d6;
+    --btn: #1f252d;
+    --btn-ink: #e8eaed;
+    --btn-edge: #3a424d;
+    --btn-primary: #4a86d8;
+    --btn-primary-ink: #0b0e12;
+    --code-bg: #151a20;
+    --comment: #7d8793;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+  --grid: #222931; --line: #6ea8ff; --err: #ff6b6b; --pos: #4fcf8e; --exact: #e0b04f;
+  --hl: #3a3320; --hl-ink: #fff4d6; --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d;
+  --btn-primary: #4a86d8; --btn-primary-ink: #0b0e12; --code-bg: #151a20; --comment: #7d8793;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+}
+header {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px;
+  padding: 10px 20px 6px; border-bottom: 1px solid var(--rule);
+}
+header h1 { font-size: 22px; margin: 0; font-weight: 650; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); font-size: 14px; }
+.controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 8px 20px; border-bottom: 1px solid var(--rule); background: var(--panel);
+}
+.controls .group { display: flex; align-items: center; gap: 6px; }
+.controls .sep { width: 1px; align-self: stretch; background: var(--rule); margin: 0 4px; }
+label { font-size: 14px; color: var(--muted); }
+select, button, input[type=range] { font: inherit; font-size: 15px; }
+select {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 8px;
+}
+button {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
+}
+button.primary { background: var(--btn-primary); color: var(--btn-primary-ink); border-color: var(--btn-primary); }
+button:hover { filter: brightness(0.97); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--line); outline-offset: 2px; }
+kbd {
+  font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; color: inherit; opacity: 0.75;
+  border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; margin-left: 4px;
+}
+main {
+  display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 12px; padding: 10px 20px 12px;
+}
+@media (min-width: 901px) and (min-height: 600px) {
+  body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  main { flex: 1; min-height: 0; }
+}
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+@media (max-width: 1440px) { kbd { display: none; } }
+
+
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px; }
+.card h2 { font-size: 15px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.left, .right { display: grid; gap: 10px; min-width: 0; min-height: 0; }
+.left { grid-template-rows: minmax(0, 1fr) auto auto; }
+.right { grid-template-rows: minmax(0, 1fr) auto; }
+.card.grow .code { flex: 1; overflow: auto; }
+.card.grow { display: flex; flex-direction: column; min-height: 0; }
+.card.grow svg { flex: 1; min-height: 110px; height: 100%; }
+#chart { min-height: 250px; }
+.bars svg { height: 150px; }
+svg { display: block; width: 100%; }
+.caption {
+  font-size: 18px; min-height: 3.1em; padding: 8px 14px;
+  background: var(--bg); border: 1px solid var(--rule); border-left: 4px solid var(--line);
+  border-radius: 8px;
+}
+.caption .math { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 16px; }
+.bars { display: grid; grid-template-columns: 1fr 1fr 1.25fr; gap: 10px; }
+@media (max-width: 900px) { .bars { grid-template-columns: 1fr 1fr; } }
+.code {
+  font: 15.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  background: var(--code-bg); border: 1px solid var(--rule); border-radius: 8px;
+  padding: 6px 0; overflow-x: auto;
+}
+.code .ln { display: grid; grid-template-columns: 2.4em 1fr; padding: 0 10px 0 0; white-space: pre; }
+.code .ln .no { color: var(--muted); text-align: right; padding-right: 12px; user-select: none; }
+.code .ln.on { background: var(--hl); color: var(--hl-ink); }
+.code .ln.diff { box-shadow: inset 4px 0 0 var(--err); }
+.code .ln.on .no { color: var(--hl-ink); font-weight: 700; }
+.code .c { color: var(--comment); }
+.vars { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; font-variant-numeric: tabular-nums; }
+.vars .v { display: flex; justify-content: space-between; padding: 2px 4px; border-bottom: 1px solid var(--rule);
+  font: 16px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.vars .v .k { color: var(--muted); }
+.vars .v.changed .val { color: var(--err); font-weight: 700; }
+.note { color: var(--muted); font-size: 13px; }
+footer {
+  padding: 4px 20px 6px; border-top: 1px solid var(--rule); background: var(--panel);
+  font-size: 12.5px; color: var(--muted);
+}
+footer a { color: var(--line); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+/* screen-size overrides: last, so they win over the base rules */
+@media (min-width: 901px) and (max-height: 820px) {
+  header { padding: 6px 20px 4px; }
+  header h1 { font-size: 19px; }
+  .controls { padding: 5px 20px; }
+  main { gap: 8px; padding: 6px 16px 8px; }
+  .left, .right { gap: 7px; }
+  .card { padding: 5px 8px; }
+  .card h2 { font-size: 12px; margin-bottom: 3px; }
+  .code { font-size: 13.5px; line-height: 1.3; padding: 2px 0; }
+  .vars .v { font-size: 14px; padding: 1px 4px; }
+  .caption { font-size: 16px; min-height: 2.9em; padding: 6px 12px; }
+  .caption .math { font-size: 14px; }
+  .bars svg { height: 112px; }
+  .card.grow svg { min-height: 80px; }
+  footer { padding: 3px 16px 4px; font-size: 11.5px; }
+  #chart { min-height: 200px; }
+}
+@media (min-width: 1800px) and (min-height: 1000px) {
+  body { font-size: 18px; }
+  header h1 { font-size: 26px; }
+  select, button { font-size: 17px; }
+  .card h2 { font-size: 15px; }
+  .code { font-size: 19px; }
+  .vars .v { font-size: 19px; }
+  .caption { font-size: 21px; }
+  .caption .math { font-size: 18px; }
+  .bars svg { height: 200px; }
+}
+</style>
+<style>
+.card, .card.grow, .code, .vars { min-width: 0; }
+.vars .v .val { overflow-x: auto; white-space: nowrap; margin-left: 8px; }
+.vars .v.wide { grid-column: 1 / -1; }
+.bars { grid-template-columns: 1fr 1fr; }
+#scene { min-height: 300px; }
+.code { font-size: 14px; }
+@media (max-width: 900px) { #scene { min-height: 380px; } .bars { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Gradient descent, momentum and Adam in a canyon</h1>
+  <p>Training language models &middot; three optimizers on d2l's ill-conditioned function f(x) = 0.1 x₁² + 2 x₂², step by step</p>
+</header>
+
+<div class="controls" role="toolbar" aria-label="Demo controls">
+  <div class="group">
+    <button id="bLine" class="primary">Next step<kbd>&rarr;</kbd></button>
+    <button id="bAll">20 steps<kbd>F</kbd></button>
+    <button id="bReset">Reset<kbd>R</kbd></button>
+  </div>
+  <span class="sep" aria-hidden="true"></span>
+  <div class="group">
+    <label for="eta">Learning rate η</label>
+    <select id="eta"><option>0.1</option><option selected>0.4</option><option>0.6</option></select>
+    <label for="beta">Momentum β</label>
+    <select id="beta"><option>0.25</option><option selected>0.5</option><option>0.9</option></select>
+    <label for="aeta">Adam η</label>
+    <select id="aeta"><option>0.1</option><option selected>0.5</option><option>1</option></select>
+    <label for="code">Code shown</label>
+    <select id="codeSel"><option value="gd">gradient descent</option><option value="mom" selected>momentum</option><option value="adam">Adam</option></select>
+  </div>
+</div>
+
+<main>
+  <section class="left">
+    <div class="card grow">
+      <svg id="scene" role="img" aria-label="Contours of f and the paths of the three optimizers"></svg>
+    </div>
+    <div class="caption" id="caption" aria-live="polite"></div>
+    <div class="bars">
+      <div class="card"><h2>f(x) after each step (log scale)</h2><svg id="barF"></svg></div>
+      <div class="card"><h2>The size of the last step in x₁ and x₂</h2><svg id="barS"></svg></div>
+    </div>
+  </section>
+
+  <section class="right">
+    <div class="card grow">
+      <h2 id="codeTitle">momentum.py</h2>
+      <div class="code" id="code"></div>
+    </div>
+    <div class="card">
+      <h2>Variables</h2>
+      <div class="vars" id="vars"></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  &copy; 2026 Kuk Jin Jang, Hongik University &middot;
+  <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>; commercial or
+  closed-source use by permission (<a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>) &middot;
+  the stepper follows the Week 4 demos, whose loop comes from
+  &ldquo;Machine Learning From Scratch, Part 1&rdquo; by
+  <a href="https://www.tiktok.com/@machinelearningtogo">@machinelearningtogo</a> on TikTok &middot;
+  the function and the optimizers follow d2l.ai 12.3, 12.6 and 12.10
+</footer>
+
+<script>
+"use strict";
+const grad = (x) => [0.2 * x[0], 4 * x[1]], f = (x) => 0.1 * x[0] * x[0] + 2 * x[1] * x[1];
+const val = (id) => +document.getElementById(id).value;
+let t, S;
+function reset() {
+  t = 0;
+  S = { gd: { x: [-5, -2], P: [[-5, -2]] }, mom: { x: [-5, -2], v: [0, 0], P: [[-5, -2]] }, adam: { x: [-5, -2], v: [0, 0], s: [0, 0], P: [[-5, -2]] } };
+}
+function step() {
+  t++;
+  const eta = val("eta"), beta = val("beta"), ae = val("aeta"), b1 = 0.9, b2 = 0.999;
+  let g = grad(S.gd.x); S.gd.last = g.map((gi) => eta * gi); S.gd.x = S.gd.x.map((xi, i) => xi - eta * g[i]); S.gd.P.push(S.gd.x.slice());
+  g = grad(S.mom.x); S.mom.v = S.mom.v.map((vi, i) => beta * vi + g[i]); S.mom.last = S.mom.v.map((vi) => eta * vi);
+  S.mom.x = S.mom.x.map((xi, i) => xi - eta * S.mom.v[i]); S.mom.P.push(S.mom.x.slice());
+  g = grad(S.adam.x); const A = S.adam;
+  A.v = A.v.map((vi, i) => b1 * vi + (1 - b1) * g[i]); A.s = A.s.map((si, i) => b2 * si + (1 - b2) * g[i] * g[i]);
+  const vh = A.v.map((vi) => vi / (1 - Math.pow(b1, t))), sh = A.s.map((si) => si / (1 - Math.pow(b2, t)));
+  A.last = vh.map((v, i) => ae * v / (Math.sqrt(sh[i]) + 1e-6)); A.x = A.x.map((xi, i) => xi - A.last[i]); A.P.push(A.x.slice());
+  A.g = g; S.gd.g = grad(S.gd.P[S.gd.P.length - 2]);
+}
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const a in attrs) e.setAttribute(a, attrs[a]);
+  if (text !== undefined) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const COLS = () => ({ gd: css("--err"), mom: css("--pos"), adam: css("--line") });
+const NAMES = { gd: "gradient descent", mom: "momentum", adam: "Adam" };
+function drawScene() {
+  const svg = document.getElementById("scene"); svg.innerHTML = "";
+  const W = svg.clientWidth || 640, H = svg.clientHeight || 340; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const xr = [-5.6, 1.6], yr = [-3, 3], X = (v) => 30 + (v - xr[0]) / (xr[1] - xr[0]) * (W - 50), Y = (v) => 20 + (yr[1] - v) / (yr[1] - yr[0]) * (H - 50);
+  for (const lv of [0.1, 0.4, 1, 2, 4, 8, 14]) {   // ellipses 0.1 x^2 + 2 y^2 = lv
+    const a = Math.sqrt(lv / 0.1), b = Math.sqrt(lv / 2), pts = [];
+    for (let k = 0; k <= 100; k++) { const th = 2 * Math.PI * k / 100; pts.push(`${k ? "L" : "M"}${X(a * Math.cos(th)).toFixed(1)} ${Y(b * Math.sin(th)).toFixed(1)}`); }
+    el("path", { d: pts.join(""), fill: "none", stroke: css("--grid"), "stroke-width": 1.2 }, svg);
+  }
+  el("circle", { cx: X(0), cy: Y(0), r: 4, fill: css("--ink") }, svg);
+  const C = COLS();
+  for (const k of ["gd", "mom", "adam"]) {
+    const P = S[k].P.map((p) => [Math.max(-8, Math.min(8, p[0])), Math.max(-6, Math.min(6, p[1]))]);
+    el("path", { d: P.map((p, i) => (i ? "L" : "M") + X(p[0]).toFixed(1) + " " + Y(p[1]).toFixed(1)).join(""), fill: "none", stroke: C[k], "stroke-width": 2 }, svg);
+    P.forEach((p) => el("circle", { cx: X(p[0]), cy: Y(p[1]), r: 2.6, fill: C[k] }, svg));
+  }
+  ["gd", "mom", "adam"].forEach((k, i) => { el("rect", { x: W - 175, y: 18 + i * 18, width: 12, height: 4, fill: C[k] }, svg);
+    el("text", { x: W - 158, y: 24 + i * 18, "font-size": 12, fill: css("--ink") }, svg, NAMES[k]); });
+  el("text", { x: 30, y: H - 8, "font-size": 11.5, fill: css("--muted") }, svg, "contours of f; the minimum at (0, 0); all three start at (−5, −2)");
+}
+function drawF() {
+  const svg = document.getElementById("barF"); svg.innerHTML = "";
+  const W = svg.clientWidth || 300, H = svg.clientHeight || 150; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const C = COLS(), T = Math.max(20, t), lo = -6, hi = 4, X = (s) => 8 + s / T * (W - 16), Y = (v) => H - 8 - (Math.min(hi, Math.max(lo, Math.log10(Math.max(v, 1e-12)))) - lo) / (hi - lo) * (H - 16);
+  for (const k of ["gd", "mom", "adam"]) el("path", { d: S[k].P.map((p, i) => (i ? "L" : "M") + X(i).toFixed(1) + " " + Y(f(p)).toFixed(1)).join(""), fill: "none", stroke: C[k], "stroke-width": 2 }, svg);
+}
+function drawS() {
+  const svg = document.getElementById("barS"); svg.innerHTML = "";
+  const W = svg.clientWidth || 300, H = svg.clientHeight || 150; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  if (!t) { el("text", { x: 6, y: 20, "font-size": 13, fill: css("--muted") }, svg, "after the first step"); return; }
+  const C = COLS(), ks = ["gd", "mom", "adam"], gw = (W - 20) / 3, L = (v) => Math.max(0, Math.min(1, (Math.log10(Math.max(Math.abs(v), 1e-4)) + 4) / 6));
+  el("text", { x: W - 6, y: 12, "text-anchor": "end", "font-size": 10.5, fill: css("--muted") }, svg, "log scale, 1e-4 to 100");
+  ks.forEach((k, j) => S[k].last.forEach((v, i) => { const h = L(v) * (H - 40), x = 10 + j * gw + 8 + i * (gw - 16) / 2;
+    el("rect", { x, y: H - 22 - h, width: (gw - 16) / 2 - 3, height: h, fill: C[k], opacity: i ? 1 : 0.55 }, svg);
+    el("text", { x: x + (gw - 16) / 4 - 1, y: H - 8, "text-anchor": "middle", "font-size": 11, fill: css("--muted") }, svg, i ? "x₂" : "x₁"); }));
+}
+const CODE = {
+  gd: [["g = grad(x)", ""], ["x = x - eta * g", "# the same eta in every direction"]],
+  mom: [["g = grad(x)", ""], ["v = beta * v + g", "# a leaky average of the gradients (d2l 12.6)"], ["x = x - eta * v", "# a step of about eta / (1 - beta) along steady directions"]],
+  adam: [["g = grad(x)", ""], ["v = b1 * v + (1 - b1) * g", "# first moment, b1 = 0.9"], ["s = b2 * s + (1 - b2) * g**2", "# second moment, b2 = 0.999"],
+         ["v_hat, s_hat = v / (1 - b1**t), s / (1 - b2**t)", "# correct the bias towards 0"], ["x = x - eta * v_hat / (sqrt(s_hat) + eps)", "# a step size per coordinate (d2l 12.10)"]],
+};
+function renderCode() {
+  const k = document.getElementById("codeSel").value, box = document.getElementById("code"); box.innerHTML = "";
+  document.getElementById("codeTitle").textContent = { gd: "gradient_descent.py", mom: "momentum.py", adam: "adam.py" }[k];
+  CODE[k].forEach(([code, com], q) => {
+    const dv = document.createElement("div"); dv.className = "ln" + (t > 0 ? " on" : "");
+    const no = document.createElement("span"); no.className = "no"; no.textContent = q + 1;
+    const tx = document.createElement("span"); tx.textContent = code;
+    if (com) { const c = document.createElement("span"); c.className = "c"; c.textContent = "  " + com; tx.appendChild(c); }
+    dv.append(no, tx); box.appendChild(dv);
+  });
+}
+function caption() {
+  const c = document.getElementById("caption"), eta = val("eta");
+  if (!t) { c.textContent = "f is flat along x₁ and steep along x₂: a canyon. Press → to take one step with each optimizer."; return; }
+  const fg = f(S.gd.x), fm = f(S.mom.x), fa = f(S.adam.x);
+  let m = `Step ${t}: f = ${fg.toExponential(1)} (gradient descent), ${fm.toExponential(1)} (momentum), ${fa.toExponential(1)} (Adam).`;
+  if (eta >= 0.5 && Math.abs(S.gd.x[1]) > 2) m += " With η = " + eta + " gradient descent diverges along the steep x₂: η × 4 > 2.";
+  else if (t >= 5 && Math.abs(S.gd.x[0]) > 1) m += " Gradient descent crawls along the flat x₁; momentum accumulates the steady gradient there.";
+  if (t === 1) m += " Adam's first step is η in each coordinate, whatever the size of the gradient.";
+  c.textContent = m;
+}
+function renderVars() {
+  const box = document.getElementById("vars"); box.innerHTML = "";
+  const add = (kk, v, wide) => { const dv = document.createElement("div"); dv.className = "v" + (wide ? " wide" : "");
+    dv.innerHTML = `<span class="k">${kk}</span><span class="val">${v}</span>`; box.appendChild(dv); };
+  const fmt = (x) => `(${x[0].toFixed(3)}, ${x[1].toFixed(3)})`;
+  add("t", t); add("η, β", `${val("eta")}, ${val("beta")}`);
+  add("x, gradient descent", fmt(S.gd.x), true); add("x, momentum", fmt(S.mom.x), true); add("x, Adam", fmt(S.adam.x), true);
+  add("v (momentum)", fmt(S.mom.v), true);
+}
+function render() { drawScene(); drawF(); drawS(); renderCode(); caption(); renderVars(); }
+document.getElementById("bLine").onclick = () => { step(); render(); };
+document.getElementById("bAll").onclick = () => { for (let i = 0; i < 20; i++) step(); render(); };
+document.getElementById("bReset").onclick = () => { reset(); render(); };
+for (const id of ["eta", "beta", "aeta"]) document.getElementById(id).onchange = () => { reset(); render(); };
+document.getElementById("codeSel").onchange = render;
+document.addEventListener("keydown", (x) => {
+  if (x.target.tagName === "SELECT" || x.target.tagName === "INPUT") return;
+  const k = x.key.toLowerCase();
+  if (k === "arrowright") { x.preventDefault(); document.getElementById("bLine").click(); }
+  else if (k === "f") document.getElementById("bAll").click();
+  else if (k === "r") document.getElementById("bReset").click();
+});
+window.addEventListener("resize", render);
+reset(); render();
+</script>
+</body>
+</html>

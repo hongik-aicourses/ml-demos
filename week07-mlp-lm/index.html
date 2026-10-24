@@ -17,6 +17,8 @@
   character (so that it can be drawn; the notebook uses 10), 64 tanh units, 27 scores. The page
   computes the forward pass, the cross-entropy, backpropagation and the SGD update itself, the
   steps PyTorch performs for lm(...), F.cross_entropy, loss.backward() and opt.step().
+  Weight decay adds lambda times each parameter to its gradient, as torch.optim.SGD(weight_decay=...)
+  does (used in the hour on generalization and regularization).
   Keys: Right arrow = next line, N = one step, Space = train / pause, R = reset,
         S = sample names.
   One self-contained file: no server, no network, no libraries.
@@ -235,6 +237,13 @@ input[type=text] { font: inherit; font-size: 15px; width: 5em; padding: 4px 6px;
       <option value="64" selected>64</option>
       <option value="0">all</option>
     </select>
+    <label for="wd">Weight decay</label>
+    <select id="wd">
+      <option value="0" selected>0</option>
+      <option value="0.001">0.001</option>
+      <option value="0.01">0.01</option>
+      <option value="0.03">0.03</option>
+    </select>
   </div>
   <div class="group">
     <button id="bSample">Sample names<kbd>S</kbd></button>
@@ -339,7 +348,7 @@ function sgdStep(idx, lr) {
     for (let u = 0; u < H; u++) G.b1[u] += dh[u];
   }
   let gn = 0; for (const k in G) for (const g of G[k]) gn += g * g;
-  for (const k in P) { const p = P[k], g = G[k]; for (let j = 0; j < p.length; j++) p[j] -= lr * g[j]; }
+  for (const k in P) { const p = P[k], g = G[k]; for (let j = 0; j < p.length; j++) p[j] -= lr * (g[j] + wd() * p[j]); }   // weight decay: + lambda w
   return { loss, gnorm: Math.sqrt(gn) };
 }
 
@@ -350,7 +359,7 @@ const CODE = [
   ["        e = self.emb(ctx).flatten(1)", "# look up 3 rows of 2 numbers: (B, 6)"],
   ["        h = torch.tanh(self.hidden(e))", "# (B, 64)"],
   ["        return self.out(h)", "# (B, 27) scores"],
-  ["lm = MLPLM(); opt = torch.optim.SGD(lm.parameters(), lr={LR})", ""],
+  ["lm = MLPLM(); opt = torch.optim.SGD(lm.parameters(), lr={LR}, weight_decay={WD})", ""],
   ["for step in range(steps):", ""],
   ["    idx = torch.randint(0, len(Xtr), ({B},))", "# a random minibatch"],
   ["    loss = F.cross_entropy(lm(Xtr[idx]), Ytr[idx])", "# forward: lines 2-5"],
@@ -361,6 +370,7 @@ const CODE = [
 const LOOP = [7, 8, 9, 10, 11];
 let line, step, idx, last, hist, val, running = false, samples = [], gnorm = null, acc = [];
 const lr = () => +document.getElementById("lr").value;
+const wd = () => +document.getElementById("wd").value;
 const bs = () => +document.getElementById("bs").value || TR.X.length;
 function reset() {
   init(); line = 5; step = 0; idx = null; last = null; gnorm = null; samples = []; acc = [];
@@ -480,7 +490,7 @@ function renderCode() {
   CODE.forEach(([code, com], q) => {
     const d = document.createElement("div"); d.className = "ln" + (on.has(q) ? " on" : "");
     const no = document.createElement("span"); no.className = "no"; no.textContent = q + 1;
-    const tx = document.createElement("span"); tx.textContent = code.replace("{LR}", lr()).replace("{B}", bs());
+    const tx = document.createElement("span"); tx.textContent = code.replace("{LR}", lr()).replace("{WD}", wd()).replace("{B}", bs());
     if (com) { const c = document.createElement("span"); c.className = "c"; c.textContent = "  " + com; tx.appendChild(c); }
     d.append(no, tx); box.appendChild(d);
   });
@@ -493,7 +503,7 @@ function caption() {
     8: `Forward: look up the 2 numbers of each of the 3 characters, the hidden layer, 27 scores; the cross-entropy of the right next characters is ${last !== null ? last.toFixed(3) : "–"}.`,
     9: "Set the gradients to zero: backward() adds into .grad, so the old gradients must go first.",
     10: `Backpropagation: the gradient of the loss for every one of the ${NPARAM.toLocaleString()} parameters${gnorm !== null ? "" : ""}.`,
-    11: running ? `Training: step ${step}. Watch the minibatch loss (blue) and the validation loss (red); the points of the table move as the model learns.`
+    11: running ? `Training: step ${step}${wd() ? `, with weight decay ${wd()}: every step also shrinks the weights by the factor ${(1 - lr() * wd()).toFixed(4)}` : ""}. Watch the minibatch loss (blue) and the validation loss (red); the points of the table move as the model learns.`
                 : `One step along the negative gradient with learning rate ${lr()}. ${val.length > 1 && val[val.length - 1][1] > Math.min(...val.map((q) => q[1])) + 0.15 ? "The validation loss is now above its lowest value: the model is fitting the training names too closely." : ""}`,
   }[line];
   c.textContent = !isFinite(last ?? 0) || !isFinite(hist[hist.length - 1][1]) ? `The loss became infinite: learning rate ${lr()} is too large, and the steps overshoot. Reset (R) and choose a smaller one.` : (m || "");
@@ -528,6 +538,7 @@ document.getElementById("bReset").onclick = () => { setRun(false); reset(); rend
 document.getElementById("bSample").onclick = () => { samples = sample(); render(); };
 document.getElementById("lr").onchange = render;
 document.getElementById("bs").onchange = render;
+document.getElementById("wd").onchange = render;
 document.getElementById("ctx").oninput = render;
 document.addEventListener("keydown", (x) => {
   if (x.target.tagName === "SELECT" || x.target.tagName === "INPUT") return;

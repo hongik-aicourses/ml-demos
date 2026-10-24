@@ -16,6 +16,8 @@ Published with GitHub Pages at <https://hongik-aicourses.github.io/ml-demos/>.
 | 5, make-up hour | Backpropagation | [week05-backprop/](https://hongik-aicourses.github.io/ml-demos/week05-backprop/) |
 | 6, Hour 3 | Training a deep network: the starting weights, the activation and the scale of the inputs | [week06-training/](https://hongik-aicourses.github.io/ml-demos/week06-training/) |
 | later | Regularization: weight decay and L1 on a polynomial | [week06-regularization/](https://hongik-aicourses.github.io/ml-demos/week06-regularization/) |
+| later | A convolution, line by line: a 3 &times; 3 filter over a picture, then a causal filter over a sentence | [convolution/](https://hongik-aicourses.github.io/ml-demos/convolution/) |
+| later | A small CNN learns its own filters: 8 filters on handwritten digits, next to softmax regression, with moved digits | [cnn-digits/](https://hongik-aicourses.github.io/ml-demos/cnn-digits/) |
 | later | Naive Bayes spam filter, clue by clue | [naive-bayes/](https://hongik-aicourses.github.io/ml-demos/naive-bayes/) |
 
 ## Where the files come from
@@ -37,6 +39,17 @@ rather than editing this repository directly.
   table, the prior of 25%, the example email and the order of the explanation. The page adds
   the two words of the email the video leaves uncounted ("claim", "prize") and the log-odds
   view.
+
+- **Convolutional networks (both pages):** these follow the short videos *Machine Learning
+  From Scratch, Part 32: CNN* and *Part 10: How AI Sees* by
+  [@machinelearningtogo](https://www.tiktok.com/@machinelearningtogo) and *Convolutional Neural
+  Network: how the kernel really works* by
+  [@DataScienceFoundry](https://www.tiktok.com/@datasciencefoundry) on TikTok: the 8 &times; 8
+  digit, the 3 &times; 3 filter that multiplies and adds, the feature map, 2 &times; 2 max pooling,
+  8 learned filters (72 numbers), the comparison of 72 shared weights with 4,608, and each
+  digit's weights drawn as a stencil. The pages add the sentence (a causal filter over
+  character vectors) and the test with moved digits. Digits: UCI Optical Recognition of
+  Handwritten Digits (Alpaydin and Kaynak), CC BY 4.0, as shipped with scikit-learn.
 
 ## License
 

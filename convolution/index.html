@@ -1,0 +1,703 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A Convolution, Line by Line</title>
+<meta name="description" content="Convolutional networks demo: a 3 x 3 filter slides over a picture, multiplies and adds, fills a feature map, then ReLU and max pooling; the same loop runs over a sentence as a causal 1-D convolution.">
+<!--
+  (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
+  licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
+  Commercial use, closed-source use, or any other licensing: by permission,
+  jangkj@hongik.ac.kr.
+
+  Convolutional networks demo --- a convolution, line by line.
+  Picture mode: a 3 x 3 filter (vertical, horizontal or diagonal edge, or a blur) steps over
+  an 8 x 8 digit or a 10 x 10 skyline; at each position the 9 products are drawn and added,
+  the ReLU fills one cell of the feature map, and 2 x 2 max pooling shrinks the map at the end.
+  Sentence mode: the same loop over the positions of "the cat sat on the mat", with a
+  4-number vector per character and a filter over the window t-2, t-1, t (causal), whose
+  output is large only where "at" ends; a side panel shows how far back a stack of such
+  layers sees, with and without dilations 1, 2, 4, 8.
+  Follows the short videos "Machine Learning From Scratch, Part 32: CNN" by
+  @machinelearningtogo and "Convolutional Neural Network: how the kernel really works" by
+  @DataScienceFoundry (TikTok). Digits: UCI Optical Recognition of Handwritten Digits
+  (Alpaydin and Kaynak), CC BY 4.0. One self-contained file: no server, no network, no libraries.
+
+  Keys: Right arrow or N = next line, P = next position, Space = play / pause,
+        F = run all, R = reset.
+-->
+<style>
+:root {
+  --bg: #ffffff;
+  --panel: #f4f5f7;
+  --ink: #1a1a1a;
+  --muted: #5b6068;
+  --rule: #d9dce1;
+  --grid: #eceef1;
+  --line: #2f6fbf;
+  --err: #c00000;
+  --pos: #1e8e5a;
+  --exact: #b7791f;
+  --hl: #fff1c2;
+  --hl-ink: #1a1a1a;
+  --btn: #ffffff;
+  --btn-ink: #1a1a1a;
+  --btn-edge: #b9bec6;
+  --btn-primary: #2f6fbf;
+  --btn-primary-ink: #ffffff;
+  --code-bg: #fbfbfc;
+  --comment: #8a8f98;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418;
+    --panel: #1a1f26;
+    --ink: #e8eaed;
+    --muted: #9aa3ae;
+    --rule: #2c333c;
+    --grid: #222931;
+    --line: #6ea8ff;
+    --err: #ff6b6b;
+    --pos: #4fcf8e;
+    --exact: #e0b04f;
+    --hl: #3a3320;
+    --hl-ink: #fff4d6;
+    --btn: #1f252d;
+    --btn-ink: #e8eaed;
+    --btn-edge: #3a424d;
+    --btn-primary: #4a86d8;
+    --btn-primary-ink: #0b0e12;
+    --code-bg: #151a20;
+    --comment: #7d8793;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+  --grid: #222931; --line: #6ea8ff; --err: #ff6b6b; --pos: #4fcf8e; --exact: #e0b04f;
+  --hl: #3a3320; --hl-ink: #fff4d6; --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d;
+  --btn-primary: #4a86d8; --btn-primary-ink: #0b0e12; --code-bg: #151a20; --comment: #7d8793;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+}
+header {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px;
+  padding: 10px 20px 6px; border-bottom: 1px solid var(--rule);
+}
+header h1 { font-size: 22px; margin: 0; font-weight: 650; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); font-size: 14px; }
+.controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 8px 20px; border-bottom: 1px solid var(--rule); background: var(--panel);
+}
+.controls .group { display: flex; align-items: center; gap: 6px; }
+.controls .sep { width: 1px; align-self: stretch; background: var(--rule); margin: 0 4px; }
+label { font-size: 14px; color: var(--muted); }
+select, button, input[type=range] { font: inherit; font-size: 15px; }
+select {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 8px;
+}
+button {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
+}
+button.primary { background: var(--btn-primary); color: var(--btn-primary-ink); border-color: var(--btn-primary); }
+button:hover { filter: brightness(0.97); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--line); outline-offset: 2px; }
+kbd {
+  font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; color: inherit; opacity: 0.75;
+  border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; margin-left: 4px;
+}
+main {
+  display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 12px; padding: 10px 20px 12px;
+}
+@media (min-width: 901px) and (min-height: 600px) {
+  body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  main { flex: 1; min-height: 0; }
+}
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+@media (max-width: 1440px) { kbd { display: none; } }
+
+
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px; }
+.card h2 { font-size: 15px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.left, .right { display: grid; gap: 10px; min-width: 0; min-height: 0; }
+.left { grid-template-rows: minmax(0, 1fr) auto auto; }
+.right { grid-template-rows: minmax(0, 1fr) auto; }
+.card.grow .code { flex: 1; overflow: auto; }
+.card.grow { display: flex; flex-direction: column; min-height: 0; }
+.card.grow svg { flex: 1; min-height: 110px; height: 100%; }
+#chart { min-height: 250px; }
+.bars svg { height: 150px; }
+svg { display: block; width: 100%; }
+.caption {
+  font-size: 18px; min-height: 3.1em; padding: 8px 14px;
+  background: var(--bg); border: 1px solid var(--rule); border-left: 4px solid var(--line);
+  border-radius: 8px;
+}
+.caption .math { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 16px; }
+.bars { display: grid; grid-template-columns: 1fr 1fr 1.25fr; gap: 10px; }
+@media (max-width: 900px) { .bars { grid-template-columns: 1fr 1fr; } }
+.code {
+  font: 15.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  background: var(--code-bg); border: 1px solid var(--rule); border-radius: 8px;
+  padding: 6px 0; overflow-x: auto;
+}
+.code .ln { display: grid; grid-template-columns: 2.4em 1fr; padding: 0 10px 0 0; white-space: pre; }
+.code .ln .no { color: var(--muted); text-align: right; padding-right: 12px; user-select: none; }
+.code .ln.on { background: var(--hl); color: var(--hl-ink); }
+.code .ln.diff { box-shadow: inset 4px 0 0 var(--err); }
+.code .ln.on .no { color: var(--hl-ink); font-weight: 700; }
+.code .c { color: var(--comment); }
+.vars { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; font-variant-numeric: tabular-nums; }
+.vars .v { display: flex; justify-content: space-between; padding: 2px 4px; border-bottom: 1px solid var(--rule);
+  font: 16px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.vars .v .k { color: var(--muted); }
+.vars .v.changed .val { color: var(--err); font-weight: 700; }
+.note { color: var(--muted); font-size: 13px; }
+footer {
+  padding: 4px 20px 6px; border-top: 1px solid var(--rule); background: var(--panel);
+  font-size: 12.5px; color: var(--muted);
+}
+footer a { color: var(--line); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+/* screen-size overrides: last, so they win over the base rules */
+@media (min-width: 901px) and (max-height: 820px) {
+  header { padding: 6px 20px 4px; }
+  header h1 { font-size: 19px; }
+  .controls { padding: 5px 20px; }
+  main { gap: 8px; padding: 6px 16px 8px; }
+  .left, .right { gap: 7px; }
+  .card { padding: 5px 8px; }
+  .card h2 { font-size: 12px; margin-bottom: 3px; }
+  .code { font-size: 13.5px; line-height: 1.3; padding: 2px 0; }
+  .vars .v { font-size: 14px; padding: 1px 4px; }
+  .caption { font-size: 16px; min-height: 2.9em; padding: 6px 12px; }
+  .caption .math { font-size: 14px; }
+  .bars svg { height: 112px; }
+  .card.grow svg { min-height: 80px; }
+  footer { padding: 3px 16px 4px; font-size: 11.5px; }
+  #chart { min-height: 200px; }
+}
+@media (min-width: 1800px) and (min-height: 1000px) {
+  body { font-size: 18px; }
+  header h1 { font-size: 26px; }
+  select, button { font-size: 17px; }
+  .card h2 { font-size: 15px; }
+  .code { font-size: 19px; }
+  .vars .v { font-size: 19px; }
+  .caption { font-size: 21px; }
+  .caption .math { font-size: 18px; }
+  .bars svg { height: 200px; }
+}
+</style>
+<style>
+/* convolution-specific additions */
+:root { --neg: #c00000; --posw: #1e8e5a; --win: #b7791f; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --neg: #ff6b6b; --posw: #4fcf8e; --win: #e0b04f; } }
+:root[data-theme="dark"] { --neg: #ff6b6b; --posw: #4fcf8e; --win: #e0b04f; }
+.card, .card.grow, .code, .vars { min-width: 0; }
+.vars .v .val { overflow-x: auto; white-space: nowrap; margin-left: 8px; }
+.vars .v.wide { grid-column: 1 / -1; }
+.bars { grid-template-columns: 1.4fr 1fr; }
+#scene { min-height: 300px; }
+.code { font-size: 14.5px; }
+.hidden { display: none !important; }
+@media (max-width: 900px) { #scene { min-height: 380px; } .bars { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>A convolution, line by line</h1>
+  <p>Convolutional networks &middot; a small filter slides over a picture, multiplies and adds; the same code then runs over a sentence</p>
+</header>
+
+<div class="controls" role="toolbar" aria-label="Demo controls">
+  <div class="group">
+    <label for="mode">Input</label>
+    <select id="mode">
+      <option value="image" selected>a picture (2-D)</option>
+      <option value="text">a sentence (1-D, causal)</option>
+    </select>
+  </div>
+  <div class="group" id="gPic">
+    <label for="pic">Picture</label>
+    <select id="pic">
+      <option value="seven" selected>digit 7</option>
+      <option value="zero">digit 0</option>
+      <option value="three">digit 3</option>
+      <option value="city">skyline</option>
+    </select>
+  </div>
+  <div class="group" id="gFilt">
+    <label for="filt">Filter</label>
+    <select id="filt">
+      <option value="vert" selected>vertical edge</option>
+      <option value="horiz">horizontal edge</option>
+      <option value="diag">diagonal edge</option>
+      <option value="blur">blur (average)</option>
+    </select>
+  </div>
+  <span class="sep" aria-hidden="true"></span>
+  <div class="group">
+    <button id="bLine" class="primary">Next line<kbd>&rarr;</kbd></button>
+    <button id="bPos">Next position<kbd>P</kbd></button>
+  </div>
+  <div class="group">
+    <button id="bPlay">Play<kbd>Space</kbd></button>
+    <label for="speed" class="sr">Speed</label>
+    <input id="speed" type="range" min="1" max="10" value="5" aria-label="Playback speed" style="width: 90px">
+  </div>
+  <div class="group">
+    <button id="bRun">Run all<kbd>F</kbd></button>
+    <button id="bReset">Reset<kbd>R</kbd></button>
+  </div>
+  <div class="group hidden" id="gRF">
+    <label for="layers">Stacked layers</label>
+    <select id="layers"><option>1</option><option selected>2</option><option>3</option><option>4</option></select>
+    <label><input id="dil" type="checkbox"> dilations 1, 2, 4, 8</label>
+  </div>
+</div>
+
+<main>
+  <section class="left">
+    <div class="card grow">
+      <svg id="scene" role="img" aria-label="The input, the filter and its window, and the output filled in so far"></svg>
+    </div>
+    <div class="caption" id="caption" aria-live="polite"></div>
+    <div class="bars">
+      <div class="card"><h2 id="prodTitle">The products at this position (input &times; weight)</h2><svg id="barProd"></svg></div>
+      <div class="card"><h2 id="sideTitle">What the output shows</h2><svg id="side"></svg></div>
+    </div>
+  </section>
+
+  <section class="right">
+    <div class="card grow">
+      <h2 id="codeTitle">convolution.py</h2>
+      <div class="code" id="code"></div>
+    </div>
+    <div class="card">
+      <h2>Variables</h2>
+      <div class="vars" id="vars"></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  &copy; 2026 Kuk Jin Jang, Hongik University &middot;
+  <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>; commercial or
+  closed-source use by permission (<a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>) &middot;
+  follows &ldquo;Machine Learning From Scratch, Part 32: CNN&rdquo; by
+  <a href="https://www.tiktok.com/@machinelearningtogo">@machinelearningtogo</a> and
+  &ldquo;Convolutional Neural Network: how the kernel really works&rdquo; by
+  <a href="https://www.tiktok.com/@datasciencefoundry">@DataScienceFoundry</a> on TikTok &middot;
+  digits: UCI Optical Recognition of Handwritten Digits (Alpaydin &amp; Kaynak), CC BY 4.0
+</footer>
+
+<script>
+"use strict";
+// ---- data ---------------------------------------------------------------------
+// Three 8 x 8 digits from the UCI handwritten-digits set (scaled to 0..1) and a 10 x 10
+// skyline: a dark sky, a bright sun and three bright buildings.
+const PICS = {
+  seven: [[0,0,.44,.5,.81,1,.94,.06],[0,0,.44,.44,.25,.69,.75,0],[0,0,0,0,.5,.81,.06,0],[0,.25,.5,.5,.94,.94,.38,0],
+          [0,.12,.69,.94,.94,.25,0,0],[0,0,0,1,.31,0,0,0],[0,0,.56,.94,.06,0,0,0],[0,0,.81,.31,0,0,0,0]],
+  zero:  [[0,0,.31,.81,.56,.06,0,0],[0,0,.81,.94,.62,.94,.31,0],[0,.19,.94,.12,0,.69,.5,0],[0,.25,.75,0,0,.5,.5,0],
+          [0,.31,.5,0,0,.56,.5,0],[0,.25,.69,0,.06,.75,.44,0],[0,.12,.88,.31,.62,.75,0,0],[0,0,.38,.81,.62,0,0,0]],
+  three: [[0,0,.44,.94,.81,.06,0,0],[0,.5,.81,.38,.94,.25,0,0],[0,.12,.06,.81,.81,0,0,0],[0,0,.12,.94,.69,.06,0,0],
+          [0,0,0,.06,.75,.75,.06,0],[0,0,0,0,.06,.62,.5,0],[0,0,.5,.25,.31,.88,.56,0],[0,0,.44,.81,.81,.56,0,0]],
+  city: (() => {
+    const g = Array.from({ length: 10 }, () => Array(10).fill(0.1));
+    for (const [r, c] of [[1, 7], [1, 8], [2, 7], [2, 8]]) g[r][c] = 1;          // the sun
+    for (const [c0, c1, h] of [[1, 2, 5], [4, 5, 7], [7, 8, 4]])                  // buildings
+      for (let r = 10 - h; r < 10; r++) for (let c = c0; c <= c1; c++) g[r][c] = 0.8;
+    return g;
+  })(),
+};
+const FILTERS = {
+  vert:  { w: [[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]], name: "vertical edge",
+           says: "bright where the picture turns from dark (left) to bright (right)" },
+  horiz: { w: [[-1, -1, -1], [0, 0, 0], [1, 1, 1]], name: "horizontal edge",
+           says: "bright where the picture turns from dark (above) to bright (below)" },
+  diag:  { w: [[0, 1, 1], [-1, 0, 1], [-1, -1, 0]], name: "diagonal edge",
+           says: "bright along edges running from bottom left to top right" },
+  blur:  { w: [[1/9, 1/9, 1/9], [1/9, 1/9, 1/9], [1/9, 1/9, 1/9]], name: "blur",
+           says: "the average of each 3 x 3 patch: a smoother, smaller picture" },
+};
+// The sentence and one small vector per character (4 numbers). The filter is the vectors of
+// "a" and "t" in its last two rows, so its sum is largest where "at" ends; the bias -4
+// leaves only those positions after the ReLU.
+const TEXT = "the cat sat on the mat";
+const EMB = { " ": [1, -1, 0, 1], a: [1, 1, 1, -1], c: [1, 0, 1, 0], e: [0, 1, 0, 0], h: [-1, -1, 0, 1],
+              m: [1, 1, 1, 1], n: [1, -1, -1, 1], o: [-1, -1, 1, -1], s: [0, 1, 0, -1], t: [1, 0, -1, 0] };
+const WT = [[0, 0, 0, 0], EMB.a, EMB.t], BT = -4;
+
+const CODE_IMG = [
+  ["image = {PIC}", "# {N} x {N}, one number per pixel"],
+  ["w = {FILT}", "# 3 x 3, the filter"],
+  ["b = 0.0", ""],
+  ["fmap = [[0.0] * {M} for _ in range({M})]", "# the feature map, {M} x {M}"],
+  ["for i in range({M}):", "# every row the filter fits"],
+  ["    for j in range({M}):", "# every column"],
+  ["        s = sum(image[i+r][j+c] * w[r][c]", "# multiply,"],
+  ["                for r in range(3) for c in range(3))", "# then add"],
+  ["        fmap[i][j] = max(0.0, s + b)", "# ReLU"],
+  ["pooled = [[max(fmap[2*i+r][2*j+c] for r in (0, 1) for c in (0, 1))", "# 2 x 2 max pooling"],
+  ["           for j in range({P})] for i in range({P})]", "# {P} x {P}"],
+];
+const CODE_TXT = [
+  ["text = \"the cat sat on the mat\"", ""],
+  ["x = [E[ch] for ch in text]", "# one vector of 4 numbers per character"],
+  ["w = [E0, E['a'], E['t']]", "# 3 positions x 4 numbers"],
+  ["b = -4.0", ""],
+  ["out = []", ""],
+  ["for t in range(len(x)):", "# every position"],
+  ["    s = sum(x[t-2+r][k] * w[r][k]", "# the window that ends at t:"],
+  ["            for r in range(3) for k in range(4) if t-2+r >= 0)", "# nothing after t"],
+  ["    out.append(max(0.0, s + b))", "# ReLU"],
+];
+
+// ---- the computation as a list of events, one per executed line ----------------
+let mode = "image", EV = [], k = 0, timer = null;
+const fmt = (v, d = 2) => (Math.abs(v) < 5e-10 ? 0 : v).toFixed(d).replace(/\.?0+$/, "") || "0";
+function conv2(img, w) {
+  const M = img.length - 2, f = [];
+  for (let i = 0; i < M; i++) { f.push([]); for (let j = 0; j < M; j++) {
+    let s = 0; for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) s += img[i + r][j + c] * w[r][c];
+    f[i].push(s); } }
+  return f;
+}
+function build() {
+  EV = [];
+  if (mode === "image") {
+    const img = PICS[pic()], w = FILTERS[filt()].w, M = img.length - 2, P = M >> 1, S = conv2(img, w);
+    [0, 1, 2, 3].forEach((l) => EV.push({ line: l }));
+    for (let i = 0; i < M; i++) {
+      EV.push({ line: 4, i });
+      for (let j = 0; j < M; j++) {
+        EV.push({ line: 5, i, j });
+        EV.push({ line: 6, i, j, s: S[i][j] });
+        EV.push({ line: 8, i, j, s: S[i][j], set: true });
+      }
+    }
+    for (let i = 0; i < P; i++) for (let j = 0; j < P; j++) EV.push({ line: 9, pi: i, pj: j });
+    EV.S = S; EV.M = M; EV.P = P;
+  } else {
+    [0, 1, 2, 3, 4].forEach((l) => EV.push({ line: l }));
+    for (let t = 0; t < TEXT.length; t++) {
+      EV.push({ line: 5, t });
+      EV.push({ line: 6, t, s: sTxt(t) });
+      EV.push({ line: 8, t, s: sTxt(t), set: true });
+    }
+  }
+  k = 0;
+}
+function sTxt(t) {
+  let s = 0;
+  for (let r = 0; r < 3; r++) { const q = t - 2 + r; if (q < 0) continue;
+    for (let d = 0; d < 4; d++) s += EMB[TEXT[q]][d] * WT[r][d]; }
+  return s;
+}
+const pic = () => document.getElementById("pic").value;
+const filt = () => document.getElementById("filt").value;
+const ev = () => EV[Math.min(k, EV.length - 1)];
+
+// ---- drawing --------------------------------------------------------------------
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const a in attrs) e.setAttribute(a, attrs[a]);
+  if (text !== undefined) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function gray(v) { const g = Math.round(255 * Math.max(0, Math.min(1, v))); return `rgb(${g},${g},${g})`; }
+function signed(v, m) {   // green for positive, red for negative, by size
+  const a = Math.min(1, Math.abs(v) / (m || 1));
+  return v >= 0 ? `color-mix(in srgb, var(--posw) ${Math.round(a * 85)}%, transparent)`
+                : `color-mix(in srgb, var(--neg) ${Math.round(a * 85)}%, transparent)`;
+}
+function grid(svg, x0, y0, cs, A, fill, label, opts = {}) {
+  const g = el("g", {}, svg);
+  if (label) el("text", { x: x0, y: y0 - 6, fill: css("--muted"), "font-size": 12 }, g, label);
+  A.forEach((row, r) => row.forEach((v, c) => {
+    const f = v === null ? "none" : fill(v, r, c);
+    el("rect", { x: x0 + c * cs, y: y0 + r * cs, width: cs, height: cs, fill: f,
+                 stroke: css("--rule"), "stroke-width": 1 }, g);
+    if (opts.nums && v !== null && cs >= 22)
+      el("text", { x: x0 + c * cs + cs / 2, y: y0 + r * cs + cs / 2 + 4, "text-anchor": "middle",
+                   "font-size": Math.min(12, cs * 0.38), fill: opts.numInk ? opts.numInk(v) : css("--ink") }, g,
+         opts.fmtv ? opts.fmtv(v) : fmt(v, 1));
+  }));
+  return g;
+}
+
+function drawImage() {
+  const svg = document.getElementById("scene"); svg.innerHTML = "";
+  const W = svg.clientWidth || 640, H = svg.clientHeight || 340;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const img = PICS[pic()], N = img.length, M = EV.M, P = EV.P, e = ev(), w = FILTERS[filt()].w;
+  const cs = Math.max(14, Math.min((H - 40) / N, (W * 0.48) / N));
+  const x0 = 12, y0 = 26;
+  grid(svg, x0, y0, cs, img, (v) => gray(v), `input: ${N} × ${N} pixels`,
+       { nums: true, numInk: (v) => (v > 0.55 ? "#111" : "#eee") });
+  // filter window
+  const cur = e.i !== undefined && e.j !== undefined ? e : null;
+  if (cur) el("rect", { x: x0 + cur.j * cs, y: y0 + cur.i * cs, width: 3 * cs, height: 3 * cs, fill: "none",
+                        stroke: css("--win"), "stroke-width": 3, rx: 3 }, svg);
+  // the filter
+  const fx = x0 + N * cs + 26, fcs = Math.min(30, cs * 1.1);
+  grid(svg, fx, y0, fcs, w, (v) => signed(v, 1), "filter w", { nums: true, fmtv: (v) => (Math.abs(v - 1 / 9) < 1e-9 ? "1/9" : fmt(v, 2)) });
+  // feature map so far
+  const S = EV.S, done = (i, j) => {
+    for (let q = 0; q <= Math.min(k, EV.length - 1); q++) { const x = EV[q]; if (x.set && x.i === i && x.j === j) return true; }
+    return false;
+  };
+  const shown = S.map((row, i) => row.map((v, j) => (done(i, j) ? Math.max(0, v) : null)));
+  const mx = Math.max(1e-9, ...S.flat().map((v) => Math.max(0, v)));
+  const mcs = Math.max(9, Math.min(cs * 0.82, (W - fx - 10) / (M + 1.25 * P + 1.2)));
+  const my = y0 + 3 * fcs + 34;
+  grid(svg, fx, my, mcs, shown, (v) => gray(v / mx), `feature map: ${M} × ${M} (after ReLU)`);
+  if (cur) el("rect", { x: fx + cur.j * mcs, y: my + cur.i * mcs, width: mcs, height: mcs, fill: "none",
+                        stroke: css("--win"), "stroke-width": 2.5 }, svg);
+  // pooled
+  const pooled = Array.from({ length: P }, (_, i) => Array.from({ length: P }, (_, j) => {
+    for (let q = 0; q <= Math.min(k, EV.length - 1); q++) { const x = EV[q]; if (x.line === 9 && x.pi === i && x.pj === j)
+      return Math.max(...[0, 1].flatMap((r) => [0, 1].map((c) => Math.max(0, S[2 * i + r][2 * j + c])))); }
+    return null;
+  }));
+  const pcs = mcs * 1.25, px = fx + M * mcs + 18;
+  {
+    grid(svg, px, my, pcs, pooled, (v) => gray(v / mx), `pooled: ${P} × ${P}`);
+    if (e.line === 9) {
+      el("rect", { x: fx + 2 * e.pj * mcs, y: my + 2 * e.pi * mcs, width: 2 * mcs, height: 2 * mcs, fill: "none",
+                   stroke: css("--line"), "stroke-width": 2.5 }, svg);
+      el("rect", { x: px + e.pj * pcs, y: my + e.pi * pcs, width: pcs, height: pcs, fill: "none",
+                   stroke: css("--line"), "stroke-width": 2.5 }, svg);
+    }
+  }
+}
+
+function drawText() {
+  const svg = document.getElementById("scene"); svg.innerHTML = "";
+  const W = svg.clientWidth || 640, H = svg.clientHeight || 340;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const n = TEXT.length, e = ev(), x0 = 40;
+  const cs = Math.max(12, Math.min(30, (W - x0 - 12) / (n + 2)));
+  const yC = 46, yE = yC + 10, yO = yE + 4 * cs + 40;
+  el("text", { x: 4, y: 16, fill: css("--muted"), "font-size": 12 }, svg, "input: one vector of 4 numbers per character (columns)");
+  for (let t = 0; t < n; t++) {
+    const cx = x0 + (t + 2) * cs;
+    el("text", { x: cx + cs / 2, y: yC, "text-anchor": "middle", "font-size": 15, fill: css("--ink"),
+                 "font-family": "ui-monospace, Menlo, Consolas, monospace" }, svg, TEXT[t] === " " ? "␣" : TEXT[t]);
+    EMB[TEXT[t]].forEach((v, d) => el("rect", { x: cx, y: yE + d * cs, width: cs, height: cs, fill: signed(v, 1),
+                                                stroke: css("--rule") }, svg));
+  }
+  // the two positions before the start: nothing (zeros)
+  for (let t = -2; t < 0; t++) for (let d = 0; d < 4; d++)
+    el("rect", { x: x0 + (t + 2) * cs, y: yE + d * cs, width: cs, height: cs, fill: "none", stroke: css("--rule"),
+                 "stroke-dasharray": "3 3" }, svg);
+  if (e.t !== undefined)
+    el("rect", { x: x0 + e.t * cs, y: yE - 3, width: 3 * cs, height: 4 * cs + 6, fill: "none", stroke: css("--win"),
+                 "stroke-width": 3, rx: 3 }, svg);
+  // outputs
+  el("text", { x: 4, y: yO - 10, fill: css("--muted"), "font-size": 12 }, svg, "output out[t] (after ReLU): one number per position");
+  let last = -1;
+  for (let q = 0; q <= Math.min(k, EV.length - 1); q++) if (EV[q].set) last = EV[q].t;
+  for (let t = 0; t < n; t++) {
+    const cx = x0 + (t + 2) * cs, v = t <= last ? Math.max(0, sTxt(t) + BT) : null;
+    el("rect", { x: cx, y: yO, width: cs, height: cs, fill: v === null ? "none" : gray(v / 2), stroke: css("--rule") }, svg);
+    if (v !== null) el("text", { x: cx + cs / 2, y: yO + cs / 2 + 4, "text-anchor": "middle", "font-size": 11,
+                                 fill: v > 1 ? "#111" : css("--muted") }, svg, fmt(v, 0));
+  }
+  if (e.t !== undefined) el("rect", { x: x0 + (e.t + 2) * cs, y: yO, width: cs, height: cs, fill: "none",
+                                      stroke: css("--win"), "stroke-width": 2.5 }, svg);
+  // the filter
+  const fy = yO + cs + 34;
+  el("text", { x: 4, y: fy - 8, fill: css("--muted"), "font-size": 12 }, svg, "filter w: 3 positions × 4 numbers (the vectors of nothing, “a”, “t”)");
+  const fcs = Math.max(8, Math.min(cs, (H - fy - 4) / 4));
+  WT.forEach((col, r) => col.forEach((v, d) => el("rect", { x: x0 + r * fcs, y: fy + d * fcs, width: fcs, height: fcs,
+    fill: signed(v, 1), stroke: css("--rule") }, svg)));
+}
+
+function drawProducts() {
+  const svg = document.getElementById("barProd"); svg.innerHTML = "";
+  const W = svg.clientWidth || 360, H = svg.clientHeight || 150;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const e = ev(); let prods = [], labels = [];
+  if (mode === "image" && e.i !== undefined && e.j !== undefined && e.line !== 5) {
+    const img = PICS[pic()], w = FILTERS[filt()].w;
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) { prods.push(img[e.i + r][e.j + c] * w[r][c]); labels.push(`${r}${c}`); }
+  } else if (mode === "text" && e.t !== undefined && e.line !== 5) {
+    for (let r = 0; r < 3; r++) for (let d = 0; d < 4; d++) {
+      const q = e.t - 2 + r; prods.push(q < 0 ? 0 : EMB[TEXT[q]][d] * WT[r][d]); labels.push(`${r}${d}`); }
+  }
+  if (!prods.length) { el("text", { x: 8, y: H / 2, fill: css("--muted"), "font-size": 13 }, svg, "step to a position to see its products"); return; }
+  const m = Math.max(1, ...prods.map(Math.abs)), bw = (W - 20) / prods.length, mid = H / 2;
+  el("line", { x1: 8, x2: W - 8, y1: mid, y2: mid, stroke: css("--rule") }, svg);
+  prods.forEach((v, q) => {
+    const h = (Math.abs(v) / m) * (mid - 14);
+    el("rect", { x: 10 + q * bw + 2, y: v >= 0 ? mid - h : mid, width: bw - 4, height: Math.max(1, h),
+                 fill: v >= 0 ? css("--posw") : css("--neg") }, svg);
+  });
+  const s = prods.reduce((a, c) => a + c, 0);
+  el("text", { x: 8, y: 13, "font-size": 12, fill: css("--ink") }, svg, `sum s = ${fmt(s, 2)}`);
+}
+
+function drawSide() {
+  const svg = document.getElementById("side"); svg.innerHTML = "";
+  const W = svg.clientWidth || 300, H = svg.clientHeight || 150;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  if (mode === "image") {
+    document.getElementById("sideTitle").textContent = "What this filter finds";
+    const f = FILTERS[filt()];
+    const words = (f.says + ". The network learns its filters' numbers in training; nobody writes them by hand.").split(" ");
+    let line = "", y = 18;
+    for (const wd of words) {
+      if ((line + " " + wd).length * 7 > W - 12) { el("text", { x: 6, y, "font-size": 13, fill: css("--ink") }, svg, line); y += 18; line = wd; }
+      else line = line ? line + " " + wd : wd;
+    }
+    el("text", { x: 6, y, "font-size": 13, fill: css("--ink") }, svg, line);
+    return;
+  }
+  // receptive field of a stack of causal width-3 layers
+  document.getElementById("sideTitle").textContent = "Stacked layers: how far back the last output sees";
+  const L = +document.getElementById("layers").value, dil = document.getElementById("dil").checked;
+  const ds = Array.from({ length: L }, (_, l) => (dil ? 2 ** l : 1));
+  const reach = 2 * ds.reduce((a, c) => a + c, 0), n = Math.min(32, reach + 4);
+  const cs = Math.min(24, (W - 12) / n), rowH = Math.min(28, (H - 34) / (L + 1));
+  // mark which positions feed the last output, layer by layer (top = output)
+  let need = new Set([n - 1]);
+  const rows = [need];
+  for (let l = L - 1; l >= 0; l--) {
+    const nx = new Set(); need.forEach((p) => { for (let r = 0; r < 3; r++) { const q = p - r * ds[l]; if (q >= 0) nx.add(q); } });
+    rows.push(nx); need = nx;
+  }
+  rows.reverse();   // rows[0] = input, rows[L] = output
+  rows.forEach((set, l) => {
+    for (let p = 0; p < n; p++) el("rect", { x: 6 + p * cs, y: H - 22 - l * rowH, width: cs - 2, height: rowH - 6,
+      fill: set.has(p) ? (l === L ? css("--win") : css("--line")) : css("--grid") }, svg);
+  });
+  el("text", { x: 6, y: 13, "font-size": 12.5, fill: css("--ink") }, svg,
+     `${L} layer${L > 1 ? "s" : ""}${dil ? ", dilations " + ds.join(",") : ""}: sees ${reach + 1} positions`);
+}
+
+// ---- code, caption, variables ---------------------------------------------------
+function renderCode() {
+  const box = document.getElementById("code"); box.innerHTML = "";
+  const e = ev();
+  const img = PICS[pic()], N = img.length, M = N - 2, P = M >> 1;
+  const sub = (s) => s.replace(/\{N\}/g, N).replace(/\{M\}/g, M).replace(/\{P\}/g, P)
+    .replace("{PIC}", `${pic() === "city" ? "SKYLINE" : "DIGIT_" + ({ seven: 7, zero: 0, three: 3 })[pic()]}`)
+    .replace("{FILT}", JSON.stringify(FILTERS[filt()].w.map((r) => r.map((v) => (Math.abs(v - 1 / 9) < 1e-9 ? "1/9" : v)))).replace(/"/g, ""));
+  const C = mode === "image" ? CODE_IMG : CODE_TXT;
+  document.getElementById("codeTitle").textContent = mode === "image" ? "convolution.py" : "convolution_1d.py  (the same loop over positions)";
+  C.forEach(([code, com], q) => {
+    const d = document.createElement("div"); d.className = "ln" + (q === e.line || (q === e.line + 1 && (e.line === 6 || e.line === 9)) ? " on" : "");
+    const no = document.createElement("span"); no.className = "no"; no.textContent = q + 1;
+    const tx = document.createElement("span"); tx.textContent = sub(code);
+    if (com) { const c = document.createElement("span"); c.className = "c"; c.textContent = "  " + sub(com); tx.appendChild(c); }
+    d.append(no, tx); box.appendChild(d);
+  });
+}
+function caption() {
+  const e = ev(), c = document.getElementById("caption"), f = FILTERS[filt()];
+  if (mode === "image") {
+    const img = PICS[pic()], N = img.length, M = N - 2, P = M >> 1;
+    const msg = {
+      0: `A picture is a grid of numbers: ${N} × ${N} = ${N * N} of them, 0 for black and 1 for white.`,
+      1: `The filter is a tiny grid of numbers too: 3 × 3 = 9 weights (${f.name}).`,
+      2: "One bias for the filter.",
+      3: `The filter fits in ${M} rows and ${M} columns of the picture, so the feature map is ${M} × ${M}.`,
+      4: `Row i = ${e.i}: the filter moves down one row.`,
+      5: `Column j = ${e.j}: the filter sits on the 3 × 3 patch at (${e.i}, ${e.j}).`,
+      6: `Multiply each of the 9 pixels by the weight above it and add: s = ${fmt(e.s ?? 0, 2)}.`,
+      8: `ReLU: fmap[${e.i}][${e.j}] = max(0, ${fmt(e.s ?? 0, 2)}) = ${fmt(Math.max(0, e.s ?? 0), 2)}. The same 9 weights are used at every position.`,
+      9: `Max pooling keeps the largest of each 2 × 2 block: the ${M} × ${M} map becomes ${P} × ${P}, and the exact position matters less.`,
+    }[e.line];
+    c.innerHTML = msg || "";
+  } else {
+    const msg = {
+      0: "A sentence of 22 characters.",
+      1: "Each character becomes a vector of 4 numbers (an embedding, as in the MLP language model).",
+      2: "The filter covers 3 positions × 4 numbers = 12 weights: here the vectors of “a” and “t” in its last two rows.",
+      3: "A bias of −4, so only a strong match survives the ReLU.",
+      4: "The outputs, one per position.",
+      5: `Position t = ${e.t} (“${TEXT[e.t] === " " ? "␣" : TEXT[e.t]}”): the window is positions ${e.t - 2} to ${e.t}; it never looks past t, so the output can predict the next character.`,
+      6: `Multiply and add over the window: s = ${e.s}. This is the MLP language model's window layer, applied at every position with the same weights.`,
+      8: `ReLU: out[${e.t}] = max(0, ${e.s} − 4) = ${Math.max(0, e.s - 4)}${e.s - 4 > 0 ? ": “at” ends here." : "."}`,
+    }[e.line];
+    c.innerHTML = msg || "";
+  }
+}
+function renderVars() {
+  const e = ev(), box = document.getElementById("vars"); box.innerHTML = "";
+  const add = (kk, v, wide) => { const d = document.createElement("div"); d.className = "v" + (wide ? " wide" : "");
+    d.innerHTML = `<span class="k">${kk}</span><span class="val">${v}</span>`; box.appendChild(d); };
+  if (mode === "image") {
+    const N = PICS[pic()].length, M = N - 2;
+    add("i", e.i ?? "–"); add("j", e.j ?? "–");
+    add("s", e.s !== undefined ? fmt(e.s, 3) : "–"); add("fmap[i][j]", e.set ? fmt(Math.max(0, e.s), 3) : "–");
+    add("weights in the filter", "9 + 1 bias"); add("positions", `${M} × ${M} = ${M * M}`);
+    add("a dense layer to the same map", `${N * N} × ${M * M} = ${N * N * M * M} weights`, true);
+  } else {
+    add("t", e.t ?? "–"); add("text[t]", e.t !== undefined ? `"${TEXT[e.t]}"` : "–");
+    add("s", e.s ?? "–"); add("out[t]", e.set ? Math.max(0, e.s - 4) : "–");
+    add("weights in the filter", "12 + 1 bias"); add("window", "t−2, t−1, t");
+  }
+}
+function render() {
+  document.getElementById("gPic").classList.toggle("hidden", mode !== "image");
+  document.getElementById("gFilt").classList.toggle("hidden", mode !== "image");
+  document.getElementById("gRF").classList.toggle("hidden", mode !== "text");
+  document.getElementById("prodTitle").textContent = mode === "image"
+    ? "The 9 products at this position (pixel × weight)" : "The 12 products at this position (vector entry × weight)";
+  if (mode === "image") drawImage(); else drawText();
+  drawProducts(); drawSide(); renderCode(); caption(); renderVars();
+}
+
+// ---- controls -------------------------------------------------------------------
+function next() { if (k < EV.length - 1) k++; else stop(); render(); }
+function nextPos() { do { k++; } while (k < EV.length - 1 && !EV[k].set && EV[k].line !== 9); k = Math.min(k, EV.length - 1); render(); }
+function runAll() { stop(); k = EV.length - 1; render(); }
+function stop() { if (timer) { clearInterval(timer); timer = null; } document.getElementById("bPlay").textContent = "Play"; }
+function play() {
+  if (timer) { stop(); return; }
+  if (k >= EV.length - 1) k = 0;
+  document.getElementById("bPlay").textContent = "Pause";
+  const sp = +document.getElementById("speed").value;
+  timer = setInterval(() => { if (k >= EV.length - 1) { stop(); return; } k++; render(); }, 1100 / sp);
+}
+function reset() { stop(); build(); render(); }
+document.getElementById("bLine").onclick = next;
+document.getElementById("bPos").onclick = nextPos;
+document.getElementById("bPlay").onclick = play;
+document.getElementById("bRun").onclick = runAll;
+document.getElementById("bReset").onclick = reset;
+document.getElementById("mode").onchange = (x) => { mode = x.target.value; reset(); };
+document.getElementById("pic").onchange = reset;
+document.getElementById("filt").onchange = reset;
+document.getElementById("layers").onchange = render;
+document.getElementById("dil").onchange = render;
+document.getElementById("speed").oninput = () => { if (timer) { stop(); play(); } };
+document.addEventListener("keydown", (x) => {
+  if (x.target.tagName === "SELECT" || x.target.tagName === "INPUT") return;
+  const key = x.key.toLowerCase();
+  if (key === "arrowright" || key === "n") { x.preventDefault(); next(); }
+  else if (key === "p") nextPos();
+  else if (key === " ") { x.preventDefault(); play(); }
+  else if (key === "f") runAll();
+  else if (key === "r") reset();
+});
+window.addEventListener("resize", render);
+build(); render();
+</script>
+</body>
+</html>

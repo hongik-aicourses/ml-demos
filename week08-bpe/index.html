@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Byte Pair Encoding, Merge by Merge</title>
+<meta name="description" content="Tokenization demo: byte pair encoding as in d2l.ai 15.6.2. Words are split into characters with an end-of-word symbol; the most frequent pair of neighbouring symbols is merged, again and again; the merges, the shrinking length of the text, and the segmentation of a new word.">
+<!--
+  (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
+  licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
+  Commercial use, closed-source use, or any other licensing: by permission,
+  jangkj@hongik.ac.kr.
+
+  Week 8, Hour 1 demo (calendar Week 10, Tue 3 Nov) --- byte pair encoding, merge by merge.
+  The algorithm of d2l.ai 15.6.2: symbols of length 1 plus the end-of-word symbol "_", pairs counted
+  inside words only, the most frequent pair merged (ties: the first pair found, as Python's max),
+  and d2l's segment_BPE (the longest symbol from the left) for a new word. Two training texts:
+  d2l's four words (fast 4, faster 3, tall 5, taller 4) and the first 2,500 words of H. G. Wells'
+  The Time Machine (public domain; lower case, letters only, as in d2l 9.2). A3 Part 2 runs the same
+  loop on bytes instead of letters.
+  Keys: Right arrow = next line, M = next merge, T = 10 merges, R = reset.
+  One self-contained file: no server, no network, no libraries.
+-->
+<style>
+:root {
+  --bg: #ffffff;
+  --panel: #f4f5f7;
+  --ink: #1a1a1a;
+  --muted: #5b6068;
+  --rule: #d9dce1;
+  --grid: #eceef1;
+  --line: #2f6fbf;
+  --err: #c00000;
+  --pos: #1e8e5a;
+  --exact: #b7791f;
+  --hl: #fff1c2;
+  --hl-ink: #1a1a1a;
+  --btn: #ffffff;
+  --btn-ink: #1a1a1a;
+  --btn-edge: #b9bec6;
+  --btn-primary: #2f6fbf;
+  --btn-primary-ink: #ffffff;
+  --code-bg: #fbfbfc;
+  --comment: #8a8f98;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418;
+    --panel: #1a1f26;
+    --ink: #e8eaed;
+    --muted: #9aa3ae;
+    --rule: #2c333c;
+    --grid: #222931;
+    --line: #6ea8ff;
+    --err: #ff6b6b;
+    --pos: #4fcf8e;
+    --exact: #e0b04f;
+    --hl: #3a3320;
+    --hl-ink: #fff4d6;
+    --btn: #1f252d;
+    --btn-ink: #e8eaed;
+    --btn-edge: #3a424d;
+    --btn-primary: #4a86d8;
+    --btn-primary-ink: #0b0e12;
+    --code-bg: #151a20;
+    --comment: #7d8793;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+  --grid: #222931; --line: #6ea8ff; --err: #ff6b6b; --pos: #4fcf8e; --exact: #e0b04f;
+  --hl: #3a3320; --hl-ink: #fff4d6; --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d;
+  --btn-primary: #4a86d8; --btn-primary-ink: #0b0e12; --code-bg: #151a20; --comment: #7d8793;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+}
+header {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px;
+  padding: 10px 20px 6px; border-bottom: 1px solid var(--rule);
+}
+header h1 { font-size: 22px; margin: 0; font-weight: 650; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); font-size: 14px; }
+.controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 8px 20px; border-bottom: 1px solid var(--rule); background: var(--panel);
+}
+.controls .group { display: flex; align-items: center; gap: 6px; }
+.controls .sep { width: 1px; align-self: stretch; background: var(--rule); margin: 0 4px; }
+label { font-size: 14px; color: var(--muted); }
+select, button, input[type=range] { font: inherit; font-size: 15px; }
+select {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 8px;
+}
+button {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
+}
+button.primary { background: var(--btn-primary); color: var(--btn-primary-ink); border-color: var(--btn-primary); }
+button:hover { filter: brightness(0.97); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--line); outline-offset: 2px; }
+kbd {
+  font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; color: inherit; opacity: 0.75;
+  border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; margin-left: 4px;
+}
+main {
+  display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 12px; padding: 10px 20px 12px;
+}
+@media (min-width: 901px) and (min-height: 600px) {
+  body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  main { flex: 1; min-height: 0; }
+}
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+@media (max-width: 1440px) { kbd { display: none; } }
+
+
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px; }
+.card h2 { font-size: 15px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.left, .right { display: grid; gap: 10px; min-width: 0; min-height: 0; }
+.left { grid-template-rows: minmax(0, 1fr) auto auto; }
+.right { grid-template-rows: minmax(0, 1fr) auto; }
+.card.grow .code { flex: 1; overflow: auto; }
+.card.grow { display: flex; flex-direction: column; min-height: 0; }
+.card.grow svg { flex: 1; min-height: 110px; height: 100%; }
+#chart { min-height: 250px; }
+.bars svg { height: 150px; }
+svg { display: block; width: 100%; }
+.caption {
+  font-size: 18px; min-height: 3.1em; padding: 8px 14px;
+  background: var(--bg); border: 1px solid var(--rule); border-left: 4px solid var(--line);
+  border-radius: 8px;
+}
+.caption .math { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 16px; }
+.bars { display: grid; grid-template-columns: 1fr 1fr 1.25fr; gap: 10px; }
+@media (max-width: 900px) { .bars { grid-template-columns: 1fr 1fr; } }
+.code {
+  font: 15.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  background: var(--code-bg); border: 1px solid var(--rule); border-radius: 8px;
+  padding: 6px 0; overflow-x: auto;
+}
+.code .ln { display: grid; grid-template-columns: 2.4em 1fr; padding: 0 10px 0 0; white-space: pre; }
+.code .ln .no { color: var(--muted); text-align: right; padding-right: 12px; user-select: none; }
+.code .ln.on { background: var(--hl); color: var(--hl-ink); }
+.code .ln.diff { box-shadow: inset 4px 0 0 var(--err); }
+.code .ln.on .no { color: var(--hl-ink); font-weight: 700; }
+.code .c { color: var(--comment); }
+.vars { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; font-variant-numeric: tabular-nums; }
+.vars .v { display: flex; justify-content: space-between; padding: 2px 4px; border-bottom: 1px solid var(--rule);
+  font: 16px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.vars .v .k { color: var(--muted); }
+.vars .v.changed .val { color: var(--err); font-weight: 700; }
+.note { color: var(--muted); font-size: 13px; }
+footer {
+  padding: 4px 20px 6px; border-top: 1px solid var(--rule); background: var(--panel);
+  font-size: 12.5px; color: var(--muted);
+}
+footer a { color: var(--line); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+/* screen-size overrides: last, so they win over the base rules */
+@media (min-width: 901px) and (max-height: 820px) {
+  header { padding: 6px 20px 4px; }
+  header h1 { font-size: 19px; }
+  .controls { padding: 5px 20px; }
+  main { gap: 8px; padding: 6px 16px 8px; }
+  .left, .right { gap: 7px; }
+  .card { padding: 5px 8px; }
+  .card h2 { font-size: 12px; margin-bottom: 3px; }
+  .code { font-size: 13.5px; line-height: 1.3; padding: 2px 0; }
+  .vars .v { font-size: 14px; padding: 1px 4px; }
+  .caption { font-size: 16px; min-height: 2.9em; padding: 6px 12px; }
+  .caption .math { font-size: 14px; }
+  .bars svg { height: 112px; }
+  .card.grow svg { min-height: 80px; }
+  footer { padding: 3px 16px 4px; font-size: 11.5px; }
+  #chart { min-height: 200px; }
+}
+@media (min-width: 1800px) and (min-height: 1000px) {
+  body { font-size: 18px; }
+  header h1 { font-size: 26px; }
+  select, button { font-size: 17px; }
+  .card h2 { font-size: 15px; }
+  .code { font-size: 19px; }
+  .vars .v { font-size: 19px; }
+  .caption { font-size: 21px; }
+  .caption .math { font-size: 18px; }
+  .bars svg { height: 200px; }
+}
+</style>
+<style>
+/* BPE-specific additions */
+.card, .card.grow, .code, .vars { min-width: 0; }
+.vars .v .val { overflow-x: auto; white-space: nowrap; margin-left: 8px; }
+.vars .v.wide { grid-column: 1 / -1; }
+.bars { grid-template-columns: 1fr 1.15fr; }
+#scene { min-height: 300px; }
+.code { font-size: 14px; }
+input[type=text] { font: inherit; font-size: 15px; width: 8em; padding: 4px 6px; border-radius: 6px;
+  border: 1px solid var(--btn-edge); background: var(--btn); color: var(--btn-ink); }
+.merges { font: 14px ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--ink); padding: 2px 4px; line-height: 1.55; max-height: 150px; overflow: auto; }
+.merges b { color: var(--err); }
+@media (max-width: 900px) { #scene { min-height: 460px; } .bars { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Byte pair encoding, merge by merge</h1>
+  <p>Tokenization &middot; start from single characters, count every pair of neighbours, merge the most frequent pair, repeat</p>
+</header>
+
+<div class="controls" role="toolbar" aria-label="Demo controls">
+  <div class="group">
+    <button id="bLine" class="primary">Next line<kbd>&rarr;</kbd></button>
+    <button id="bMerge">Next merge<kbd>M</kbd></button>
+    <button id="bTen">10 merges<kbd>T</kbd></button>
+    <button id="bReset">Reset<kbd>R</kbd></button>
+  </div>
+  <span class="sep" aria-hidden="true"></span>
+  <div class="group">
+    <label for="corpus">Training text</label>
+    <select id="corpus">
+      <option value="d2l" selected>fast, faster, tall, taller (d2l 15.6.2)</option>
+      <option value="tm">The Time Machine, first 2,500 words</option>
+    </select>
+  </div>
+  <div class="group">
+    <label for="word">Segment a word</label>
+    <input id="word" type="text" value="tallest" autocomplete="off" spellcheck="false">
+  </div>
+</div>
+
+<main>
+  <section class="left">
+    <div class="card grow">
+      <svg id="scene" role="img" aria-label="The most frequent words split into their current symbols, with the most frequent pair marked"></svg>
+    </div>
+    <div class="caption" id="caption" aria-live="polite"></div>
+    <div class="bars">
+      <div class="card"><h2>Counts of the most frequent pairs</h2><svg id="barPairs"></svg></div>
+      <div class="card"><h2>Merges so far, and the segmented word</h2><div class="merges" id="merges"></div></div>
+    </div>
+  </section>
+
+  <section class="right">
+    <div class="card grow">
+      <h2>bpe.py</h2>
+      <div class="code" id="code"></div>
+    </div>
+    <div class="card">
+      <h2>Variables</h2>
+      <div class="vars" id="vars"></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  &copy; 2026 Kuk Jin Jang, Hongik University &middot;
+  <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>; commercial or
+  closed-source use by permission (<a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>) &middot;
+  the stepper follows the Week 4 demos, whose loop comes from
+  &ldquo;Machine Learning From Scratch, Part 1&rdquo; by
+  <a href="https://www.tiktok.com/@machinelearningtogo">@machinelearningtogo</a> on TikTok &middot;
+  the algorithm and the four-word example follow d2l.ai 15.6.2 (Sennrich et al., 2016) &middot;
+  text: H. G. Wells, <em>The Time Machine</em> (1895), public domain
+</footer>
+
+<script>
+"use strict";
+// ---- data ---------------------------------------------------------------------
+const TM = "the time machine by h g wells i the time traveller for so it will be convenient to speak of him was expounding a recondite matter to us his grey eyes shone and twinkled and his usually pale face was flushed and animated the fire burned brightly and the soft radiance of the incandescent lights in the lilies of silver caught the bubbles that flashed and passed in our glasses our chairs being his patents embraced and caressed us rather than submitted to be sat upon and there was that luxurious after dinner atmosphere when thought roams gracefully free of the trammels of precision and he put it to us in this way marking the points with a lean forefinger as we sat and lazily admired his earnestness over this new paradox as we thought it and his fecundity you must follow me carefully i shall have to controvert one or two ideas that are almost universally accepted the geometry for instance they taught you at school is founded on a misconception is not that rather a large thing to expect us to begin upon said filby an argumentative person with red hair i do not mean to ask you to accept anything without reasonable ground for it you will soon admit as much as i need from you you know of course that a mathematical line a line of thickness nil has no real existence they taught you that neither has a mathematical plane these things are mere abstractions that is all right said the psychologist nor having only length breadth and thickness can a cube have a real existence there i object said filby of course a solid body may exist all real things so most people think but wait a moment can an instantaneous cube exist don t follow you said filby can a cube that does not last for any time at all have a real existence filby became pensive clearly the time traveller proceeded any real body must have extension in four directions it must have length breadth thickness and duration but through a natural infirmity of the flesh which i will explain to you in a moment we incline to overlook this fact there are really four dimensions three which we call the three planes of space and a fourth time there is however a tendency to draw an unreal distinction between the former three dimensions and the latter because it happens that our consciousness moves intermittently in one direction along the latter from the beginning to the end of our lives that said a very young man making spasmodic efforts to relight his cigar over the lamp that very clear indeed now it is very remarkable that this is so extensively overlooked continued the time traveller with a slight accession of cheerfulness really this is what is meant by the fourth dimension though some people who talk about the fourth dimension do not know they mean it it is only another way of looking at time there is no difference between time and any of the three dimensions of space except that our consciousness moves along it but some foolish people have got hold of the wrong side of that idea you have all heard what they have to say about this fourth dimension i have not said the provincial mayor it is simply this that space as our mathematicians have it is spoken of as having three dimensions which one may call length breadth and thickness and is always definable by reference to three planes each at right angles to the others but some philosophical people have been asking why three dimensions particularly why not another direction at right angles to the other three and have even tried to construct a four dimension geometry professor simon newcomb was expounding this to the new york mathematical society only a month or so ago you know how on a flat surface which has only two dimensions we can represent a figure of a three dimensional solid and similarly they think that by models of three dimensions they could represent one of four if they could master the perspective of the thing see i think so murmured the provincial mayor and knitting his brows he lapsed into an introspective state his lips moving as one who repeats mystic words yes i think i see it now he said after some time brightening in a quite transitory manner well i do not mind telling you i have been at work upon this geometry of four dimensions for some time some of my results are curious for instance here is a portrait of a man at eight years old another at fifteen another at seventeen another at twenty three and so on all these are evidently sections as it were three dimensional representations of his four dimensioned being which is a fixed and unalterable thing scientific people proceeded the time traveller after the pause required for the proper assimilation of this know very well that time is only a kind of space here is a popular scientific diagram a weather record this line i trace with my finger shows the movement of the barometer yesterday it was so high yesterday night it fell then this morning it rose again and so gently upward to here surely the mercury did not trace this line in any of the dimensions of space generally recognized but certainly it traced such a line and that line therefore we must conclude was along the time dimension but said the medical man staring hard at a coal in the fire if time is really only a fourth dimension of space why is it and why has it always been regarded as something different and why cannot we move in time as we move about in the other dimensions of space the time traveller smiled are you sure we can move freely in space right and left we can go backward and forward freely enough and men always have done so i admit we move freely in two dimensions but how about up and down gravitation limits us there not exactly said the medical man there are balloons but before the balloons save for spasmodic jumping and the inequalities of the surface man had no freedom of vertical movement still they could move a little up and down said the medical man easier far easier down than up and you cannot move at all in time you cannot get away from the present moment my dear sir that is just where you are wrong that is just where the whole world has gone wrong we are always getting away from the present moment our mental existences which are immaterial and have no dimensions are passing along the time dimension with a uniform velocity from the cradle to the grave just as we should travel down if we began our existence fifty miles above the earth s surface but the great difficulty is this interrupted the psychologist you can move about in all directions of space but you cannot move about in time that is the germ of my great discovery but you are wrong to say that we cannot move about in time for instance if i am recalling an incident very vividly i go back to the instant of its occurrence i become absent minded as you say i jump back for a moment of course we have no means of staying back for any length of time any more than a savage or an animal has of staying six feet above the ground but a civilized man is better off than the savage in this respect he can go up against gravitation in a balloon and why should he not hope that ultimately he may be able to stop or accelerate his drift along the time dimension or even turn about and travel the other way oh this began filby is all why not said the time traveller it s against reason said filby what reason said the time traveller you can show black is white by argument said filby but you will never convince me possibly not said the time traveller but now you begin to see the object of my investigations into the geometry of four dimensions long ago i had a vague inkling of a machine to travel through time exclaimed the very young man that shall travel indifferently in any direction of space and time as the driver determines filby contented himself with laughter but i have experimental verification said the time traveller it would be remarkably convenient for the historian the psychologist suggested one might travel back and verify the accepted account of the battle of hastings for instance don t you think you would attract attention said the medical man our ancestors had no great tolerance for anachronisms one might get one s greek from the very lips of homer and plato the very young man thought in which case they would certainly plough you for the little go the german scholars have improved greek so much then there is the future said the very young man just think one might invest all one s money leave it to accumulate at interest and hurry on ahead to discover a society said i erected on a strictly communistic basis of all the wild extravagant theories began the psychologist yes so it seemed to me and so i never talked of it until experimental verification cried i you are going to verify that the experiment cried filby who was getting brain weary let s see your experiment anyhow said the psychologist though it s all humbug you know the time traveller smiled round at us then still smiling faintly and with his hands deep in his trousers pockets he walked slowly out of the room and we heard his slippers shuffling down the long passage to his laboratory the psychologist looked at us i wonder what he s got some sleight of hand trick or other said the medical man and filby tried to tell us about a conjurer he had seen at burslem but before he had finished his preface the time traveller came back and filby s anecdote collapsed the thing the time traveller held in his hand was a glittering metallic framework scarcely larger than a small clock and very delicately made there was ivory in it and some transparent crystalline substance and now i must be explicit for this that follows unless his explanation is to be accepted is an absolutely unaccountable thing he took one of the small octagonal tables that were scattered about the room and set it in front of the fire with two legs on the hearthrug on this table he placed the mechanism then he drew up a chair and sat down the only other object on the table was a small shaded lamp the bright light of which fell upon the model there were also perhaps a dozen candles about two in brass candlesticks upon the mantel and several in sconces so that the room was brilliantly illuminated i sat in a low arm chair nearest the fire and i drew this forward so as to be almost between the time traveller and the fireplace filby sat behind him looking over his shoulder the medical man and the provincial mayor watched him in profile from the right the psychologist from the left the very young man stood behind the psychologist we were all on the alert it appears incredible to me that any kind of trick however subtly conceived and however adroitly done could have been played upon us under these conditions the time traveller looked at us and then at the mechanism well said the psychologist this little affair said the time traveller resting his elbows upon the table and pressing his hands together above the apparatus is only a model it is my plan for a machine to travel through time you will notice that it looks singularly askew and that there is an odd twinkling appearance about this bar as though it was in some way unreal he pointed to the part with his finger also here is one little white lever and here is another the medical man got up out of his chair and peered into the thing it s beautifully made he said it took two years to make retorted the time traveller then when we had all imitated the action of the medical man he said now i want you clearly to understand that this lever being pressed over sends the machine gliding into the future and this other reverses the motion this saddle represents the seat of a time traveller presently i am going to press the lever and off the machine will go it will vanish pass into future time and disappear have a good look at the thing look at the table too and satisfy yourselves there is no trickery i don t want to waste this model and then be told i m a quack there was a minute s pause perhaps the psychologist seemed about to speak to me but changed his mind then the time traveller put forth his finger towards the lever no he said suddenly lend me your hand and turning to the psychologist he took that individual s hand in his own and told him to put out his forefinger so that it was the psychologist himself who sent forth the model time machine on its interminable voyage we all saw the lever turn i am absolutely certain there was no trickery there was a breath of wind and the lamp flame jumped one of the candles on the mantel was blown out and the little machine suddenly swung round became indistinct was seen as a ghost for a second perhaps as an eddy of faintly glittering brass and ivory and it was gone vanished save for the lamp the table was bare everyone was silent for a minute then filby said he was damned the psychologist recovered from his stupor and suddenly looked under the table at that the time traveller laughed cheerfully well he said with a reminiscence of the psychologist then getting up he went to the tobacco jar on the mantel and with his back to us began to fill his pipe we stared at each other look here said the medical man are you in earnest about this do you seriously believe that that machine has travelled into time certainly said the time traveller stooping to light a spill at the fire then he turned lighting his pipe to look at the psychologist s face the psychologist to show that he was not unhinged helped himself to a cigar and tried to light it uncut what is more i have a big machine nearly finished in there he indicated the laboratory and when that is put together";
+function freqsOf(name) {
+  if (name === "d2l") return { fast: 4, faster: 3, tall: 5, taller: 4 };
+  const f = {}; for (const w of TM.split(" ")) f[w] = (f[w] || 0) + 1; return f;
+}
+const CODE = [
+  ["symbols = list('abcdefghijklmnopqrstuvwxyz') + ['_']", "# 27 symbols of length 1"],
+  ["token_freqs = {' '.join(w + '_'): f for w, f in raw_token_freqs.items()}", "# '_' ends a word"],
+  ["for i in range(num_merges):", ""],
+  ["    pairs = get_pair_counts(token_freqs)", "# every pair of neighbours, times f"],
+  ["    best = max(pairs, key=pairs.get)", "# the most frequent pair"],
+  ["    token_freqs = merge_symbols(best, token_freqs)", "# one symbol wherever it occurs"],
+  ["    symbols.append(''.join(best))", "# a new, longer symbol"],
+  ["def segment(word, symbols):", "# the longest symbol from the left"],
+];
+let words, line, pairs, best, merges, symbols, prevSyms;
+function reset() {
+  const f = freqsOf(document.getElementById("corpus").value);
+  words = Object.entries(f).map(([w, n]) => ({ w, n, s: [...w, "_"] })).sort((a, b) => b.n - a.n || (a.w < b.w ? -1 : 1));
+  // d2l iterates over the words in the order of the dictionary: keep the insertion order for ties
+  words.order = Object.keys(f);
+  symbols = [..."abcdefghijklmnopqrstuvwxyz", "_"]; merges = []; pairs = null; best = null; line = 1;
+}
+function countPairs() {
+  const m = new Map();
+  const byWord = Object.fromEntries(words.map((x) => [x.w, x]));
+  for (const w of words.order) { const x = byWord[w]; for (let i = 0; i + 1 < x.s.length; i++) { const k = x.s[i] + " " + x.s[i + 1]; m.set(k, (m.get(k) || 0) + x.n); } }
+  return m;
+}
+function pickBest() { let b = null, bv = -1; for (const [k, v] of pairs) if (v > bv) { b = k; bv = v; } return b; }   // the first maximum, as Python's max
+function mergeAll() {
+  const [a, c] = best.split(" "), ab = a + c;
+  for (const x of words) { const o = []; for (let i = 0; i < x.s.length; i++) { if (i + 1 < x.s.length && x.s[i] === a && x.s[i + 1] === c) { o.push(ab); i++; } else o.push(x.s[i]); } x.s = o; }
+}
+const totalSymbols = () => words.reduce((t, x) => t + x.n * x.s.length, 0);
+const totalChars = () => words.reduce((t, x) => t + x.n * (x.w.length + 1), 0);
+function nextLine() {
+  if (line === 1 || line === 6) { line = 3; pairs = countPairs(); best = null; if (!pairs.size) { line = 6; return false; } }
+  else if (line === 3) { line = 4; best = pickBest(); }
+  else if (line === 4) { line = 5; mergeAll(); }
+  else if (line === 5) { line = 6; symbols.push(best.replace(" ", "")); merges.push([best, pairs.get(best)]); }
+  return true;
+}
+function nextMerge() { do { if (!nextLine()) return; } while (line !== 6); }
+function segment(word) {
+  const set = new Set(symbols), out = []; let st = 0;
+  while (st < word.length) { let e = word.length; while (e > st && !set.has(word.slice(st, e))) e--; if (e === st) { out.push("[UNK]"); st++; } else { out.push(word.slice(st, e)); st = e; } }
+  return out;
+}
+
+// ---- drawing --------------------------------------------------------------------
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const a in attrs) e.setAttribute(a, attrs[a]);
+  if (text !== undefined) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const mono = "ui-monospace, Menlo, Consolas, monospace";
+function drawScene() {
+  const svg = document.getElementById("scene"); svg.innerHTML = "";
+  const W = svg.clientWidth || 640, H = svg.clientHeight || 340; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const rows = Math.max(4, Math.min(words.length, Math.floor((H - 30) / 30)));
+  el("text", { x: 8, y: 14, "font-size": 12, fill: css("--muted") }, svg,
+     words.length > rows ? `the ${rows} most frequent of ${words.length.toLocaleString()} words, split into their current symbols` : "the words, split into their current symbols");
+  const [ba, bc] = best ? best.split(" ") : [null, null];
+  const rh = Math.min(38, (H - 28) / rows), cw = Math.max(11, Math.min(22, (W - 120) / 16));
+  for (let r = 0; r < rows && r < words.length; r++) {
+    const x0 = 10, y = 26 + r * rh, wd = words[r];
+    let x = x0;
+    for (let i = 0; i < wd.s.length; i++) {
+      const sym = wd.s[i], w = Math.max(cw, sym.length * cw * 0.72 + 10);
+      const hit = line === 4 && best && ((sym === ba && wd.s[i + 1] === bc) || (sym === bc && wd.s[i - 1] === ba));
+      el("rect", { x, y, width: w - 3, height: rh - 7, rx: 4, fill: hit ? css("--hl") : css("--panel"), stroke: hit ? css("--exact") : css("--rule") }, svg);
+      el("text", { x: x + (w - 3) / 2, y: y + (rh - 7) / 2 + 5, "text-anchor": "middle", "font-size": Math.min(15, rh - 14), "font-family": mono, fill: sym.length > 1 ? css("--err") : css("--ink") }, svg, sym);
+      x += w;
+    }
+    el("text", { x: x + 8, y: y + (rh - 7) / 2 + 5, "font-size": 12.5, fill: css("--muted") }, svg, `× ${wd.n}`);
+  }
+}
+function drawPairs() {
+  const svg = document.getElementById("barPairs"); svg.innerHTML = "";
+  const W = svg.clientWidth || 300, H = svg.clientHeight || 150; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  if (!pairs) { el("text", { x: 6, y: 20, "font-size": 13, fill: css("--muted") }, svg, "press → to count the pairs"); return; }
+  const top = [...pairs.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6), mx = top.length ? top[0][1] : 1, bh = (H - 8) / 6;
+  top.forEach(([k, v], i) => {
+    const y = 4 + i * bh, w = v / mx * (W - 110);
+    el("text", { x: 52, y: y + bh / 2 + 4, "text-anchor": "end", "font-size": 12.5, "font-family": mono, fill: css("--ink") }, svg, k);
+    el("rect", { x: 58, y: y + 2, width: Math.max(1, w), height: bh - 5, fill: k === best ? css("--err") : css("--line") }, svg);
+    el("text", { x: 62 + w, y: y + bh / 2 + 4, "font-size": 12, fill: css("--muted") }, svg, v);
+  });
+}
+function renderMerges() {
+  const box = document.getElementById("merges");
+  const wd = document.getElementById("word").value.toLowerCase().replace(/[^a-z]/g, "");
+  const seg = wd ? segment(wd + "_") : [];
+  box.innerHTML = (wd ? `“${wd}” → <b>${seg.join(" ")}</b><br>` : "") +
+    (merges.length ? merges.map(([p, n], i) => `${i + 1}. ${p.replace(" ", " + ")} → ${p.replace(" ", "")} (${n})`).join("<br>") : "no merges yet");
+}
+function renderCode() {
+  const box = document.getElementById("code"); box.innerHTML = "";
+  const on = new Set([line]); if (line === 6 || line === 1) on.add(7);
+  CODE.forEach(([code, com], q) => {
+    const d = document.createElement("div"); d.className = "ln" + (on.has(q) ? " on" : "");
+    const no = document.createElement("span"); no.className = "no"; no.textContent = q + 1;
+    const tx = document.createElement("span"); tx.textContent = code;
+    if (com) { const c = document.createElement("span"); c.className = "c"; c.textContent = "  " + com; tx.appendChild(c); }
+    d.append(no, tx); box.appendChild(d);
+  });
+}
+function caption() {
+  const c = document.getElementById("caption"), n = merges.length;
+  const m = {
+    1: "Every word is split into characters, and “_” is added to mark its end. The symbols are the 26 letters and “_”. Press → to go line by line, M for a whole merge.",
+    3: `Count every pair of neighbouring symbols inside the words, each counted as often as its word occurs: ${pairs ? pairs.size : 0} different pairs. Pairs across two words are not counted.`,
+    4: best ? `The most frequent pair is “${best.replace(" ", "” + “")}”, with ${pairs.get(best)} occurrences${[...pairs.values()].filter((v) => v === pairs.get(best)).length > 1 ? " (a tie: the first one found wins)" : ""}.` : "",
+    5: best ? `Replace “${best.replace(" ", "” “")}” by the single symbol “${best.replace(" ", "")}” in every word.` : "",
+    6: `Merge ${n} done: “${best ? best.replace(" ", "") : ""}” is a new symbol. The text is now ${totalSymbols().toLocaleString()} symbols instead of ${totalChars().toLocaleString()} characters.`,
+  }[line];
+  c.textContent = m || "";
+}
+function renderVars() {
+  const box = document.getElementById("vars"); box.innerHTML = "";
+  const add = (kk, v, wide) => { const d = document.createElement("div"); d.className = "v" + (wide ? " wide" : "");
+    d.innerHTML = `<span class="k">${kk}</span><span class="val">${v}</span>`; box.appendChild(d); };
+  add("merges", merges.length); add("len(symbols)", symbols.length);
+  add("best", best ? `(${best.replace(" ", ", ")})` : "–"); add("pairs[best]", best ? pairs.get(best) : "–");
+  add("symbols in the text", totalSymbols().toLocaleString()); add("characters per symbol", (totalChars() / totalSymbols()).toFixed(2));
+  add("distinct words", words.length.toLocaleString()); add("words in the text", words.reduce((t, x) => t + x.n, 0).toLocaleString());
+}
+function render() { drawScene(); drawPairs(); renderMerges(); renderCode(); caption(); renderVars(); }
+
+// ---- controls -------------------------------------------------------------------
+document.getElementById("bLine").onclick = () => { nextLine(); render(); };
+document.getElementById("bMerge").onclick = () => { nextMerge(); render(); };
+document.getElementById("bTen").onclick = () => { for (let i = 0; i < 10; i++) nextMerge(); render(); };
+document.getElementById("bReset").onclick = () => { reset(); render(); };
+document.getElementById("corpus").onchange = () => { reset(); render(); };
+document.getElementById("word").oninput = renderMerges;
+document.addEventListener("keydown", (x) => {
+  if (x.target.tagName === "SELECT" || x.target.tagName === "INPUT") return;
+  const key = x.key.toLowerCase();
+  if (key === "arrowright") { x.preventDefault(); document.getElementById("bLine").click(); }
+  else if (key === "m") document.getElementById("bMerge").click();
+  else if (key === "t") document.getElementById("bTen").click();
+  else if (key === "r") document.getElementById("bReset").click();
+});
+window.addEventListener("resize", render);
+reset(); render();
+</script>
+</body>
+</html>

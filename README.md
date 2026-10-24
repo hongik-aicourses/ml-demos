@@ -15,6 +15,8 @@ Published with GitHub Pages at <https://hongik-aicourses.github.io/ml-demos/>.
 | 5, Hour 3 | The multilayer perceptron | [week05-mlp/](https://hongik-aicourses.github.io/ml-demos/week05-mlp/) |
 | 5, make-up hour | Backpropagation | [week05-backprop/](https://hongik-aicourses.github.io/ml-demos/week05-backprop/) |
 | 6, Hour 3 | Training a deep network: the starting weights, the activation and the scale of the inputs | [week06-training/](https://hongik-aicourses.github.io/ml-demos/week06-training/) |
+| 7, Hour 1 | A bigram language model, line by line: counting letter pairs in 240 names, add-one smoothing, sampling and perplexity | [week07-bigram/](https://hongik-aicourses.github.io/ml-demos/week07-bigram/) |
+| 7, Hour 1 | Word vectors: nearest words, analogies and a two-dimensional map (GloVe 6B, 50 dimensions) | [week07-word-vectors/](https://hongik-aicourses.github.io/ml-demos/week07-word-vectors/) |
 | later | Regularization: weight decay and L1 on a polynomial | [week06-regularization/](https://hongik-aicourses.github.io/ml-demos/week06-regularization/) |
 | later | A convolution, line by line: a 3 &times; 3 filter over a picture, then a causal filter over a sentence | [convolution/](https://hongik-aicourses.github.io/ml-demos/convolution/) |
 | later | A small CNN learns its own filters: 8 filters on handwritten digits, next to softmax regression, with moved digits | [cnn-digits/](https://hongik-aicourses.github.io/ml-demos/cnn-digits/) |
@@ -40,6 +42,11 @@ rather than editing this repository directly.
   the two words of the email the video leaves uncounted ("claim", "prize") and the log-odds
   view.
 
+- **Bigram model:** the stepper follows the Week 4 demos (from *Machine Learning From Scratch, Part 1* by
+  [@machinelearningtogo](https://www.tiktok.com/@machinelearningtogo)); the model and Laplace smoothing follow d2l.ai 9.3.
+- **Word vectors:** GloVe 6B, 50 dimensions (Pennington, Socher and Manning, 2014), released under the Open
+  Data Commons Public Domain Dedication and License; the 10,000 most frequent words, alphabetic ones only,
+  stored to 8 bits. Similarity and analogies follow d2l.ai 15.7.
 - **Convolutional networks (both pages):** these follow the short videos *Machine Learning
   From Scratch, Part 32: CNN* and *Part 10: How AI Sees* by
   [@machinelearningtogo](https://www.tiktok.com/@machinelearningtogo) and *Convolutional Neural

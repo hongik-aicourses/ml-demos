@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A Bigram Language Model, Line by Line</title>
+<meta name="description" content="Language models demo: count every pair of neighbouring letters in 240 names, turn the counts into probabilities (with or without add-one smoothing), then sample names and score a name by its perplexity.">
+<!--
+  (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
+  licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
+  Commercial use, closed-source use, or any other licensing: by permission,
+  jangkj@hongik.ac.kr.
+
+  Week 7, Hour 1 demo (calendar Week 9, Tue 27 Oct) --- a bigram language model, line by line.
+  The 240 names of the course's PyTorch notebook, with "." at the start and the end of each name.
+  The stepper counts the pairs one at a time (the count table fills in), then turns each row into
+  probabilities: relative frequencies (the maximum likelihood estimate) or add-one (Laplace)
+  smoothing, as in d2l.ai 9.3. Sampled names and the perplexity of a typed name follow; a pair
+  never seen gives probability 0 and an infinite perplexity without smoothing.
+  Keys: Right arrow = next line, P = next pair, N = next name, F = count all, R = reset,
+        S = sample names.
+  One self-contained file: no server, no network, no libraries.
+-->
+<style>
+:root {
+  --bg: #ffffff;
+  --panel: #f4f5f7;
+  --ink: #1a1a1a;
+  --muted: #5b6068;
+  --rule: #d9dce1;
+  --grid: #eceef1;
+  --line: #2f6fbf;
+  --err: #c00000;
+  --pos: #1e8e5a;
+  --exact: #b7791f;
+  --hl: #fff1c2;
+  --hl-ink: #1a1a1a;
+  --btn: #ffffff;
+  --btn-ink: #1a1a1a;
+  --btn-edge: #b9bec6;
+  --btn-primary: #2f6fbf;
+  --btn-primary-ink: #ffffff;
+  --code-bg: #fbfbfc;
+  --comment: #8a8f98;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418;
+    --panel: #1a1f26;
+    --ink: #e8eaed;
+    --muted: #9aa3ae;
+    --rule: #2c333c;
+    --grid: #222931;
+    --line: #6ea8ff;
+    --err: #ff6b6b;
+    --pos: #4fcf8e;
+    --exact: #e0b04f;
+    --hl: #3a3320;
+    --hl-ink: #fff4d6;
+    --btn: #1f252d;
+    --btn-ink: #e8eaed;
+    --btn-edge: #3a424d;
+    --btn-primary: #4a86d8;
+    --btn-primary-ink: #0b0e12;
+    --code-bg: #151a20;
+    --comment: #7d8793;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+  --grid: #222931; --line: #6ea8ff; --err: #ff6b6b; --pos: #4fcf8e; --exact: #e0b04f;
+  --hl: #3a3320; --hl-ink: #fff4d6; --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d;
+  --btn-primary: #4a86d8; --btn-primary-ink: #0b0e12; --code-bg: #151a20; --comment: #7d8793;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+}
+header {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px;
+  padding: 10px 20px 6px; border-bottom: 1px solid var(--rule);
+}
+header h1 { font-size: 22px; margin: 0; font-weight: 650; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); font-size: 14px; }
+.controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 8px 20px; border-bottom: 1px solid var(--rule); background: var(--panel);
+}
+.controls .group { display: flex; align-items: center; gap: 6px; }
+.controls .sep { width: 1px; align-self: stretch; background: var(--rule); margin: 0 4px; }
+label { font-size: 14px; color: var(--muted); }
+select, button, input[type=range] { font: inherit; font-size: 15px; }
+select {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 8px;
+}
+button {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
+}
+button.primary { background: var(--btn-primary); color: var(--btn-primary-ink); border-color: var(--btn-primary); }
+button:hover { filter: brightness(0.97); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--line); outline-offset: 2px; }
+kbd {
+  font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; color: inherit; opacity: 0.75;
+  border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; margin-left: 4px;
+}
+main {
+  display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 12px; padding: 10px 20px 12px;
+}
+@media (min-width: 901px) and (min-height: 600px) {
+  body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  main { flex: 1; min-height: 0; }
+}
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+@media (max-width: 1440px) { kbd { display: none; } }
+
+
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px; }
+.card h2 { font-size: 15px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.left, .right { display: grid; gap: 10px; min-width: 0; min-height: 0; }
+.left { grid-template-rows: minmax(0, 1fr) auto auto; }
+.right { grid-template-rows: minmax(0, 1fr) auto; }
+.card.grow .code { flex: 1; overflow: auto; }
+.card.grow { display: flex; flex-direction: column; min-height: 0; }
+.card.grow svg { flex: 1; min-height: 110px; height: 100%; }
+#chart { min-height: 250px; }
+.bars svg { height: 150px; }
+svg { display: block; width: 100%; }
+.caption {
+  font-size: 18px; min-height: 3.1em; padding: 8px 14px;
+  background: var(--bg); border: 1px solid var(--rule); border-left: 4px solid var(--line);
+  border-radius: 8px;
+}
+.caption .math { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 16px; }
+.bars { display: grid; grid-template-columns: 1fr 1fr 1.25fr; gap: 10px; }
+@media (max-width: 900px) { .bars { grid-template-columns: 1fr 1fr; } }
+.code {
+  font: 15.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  background: var(--code-bg); border: 1px solid var(--rule); border-radius: 8px;
+  padding: 6px 0; overflow-x: auto;
+}
+.code .ln { display: grid; grid-template-columns: 2.4em 1fr; padding: 0 10px 0 0; white-space: pre; }
+.code .ln .no { color: var(--muted); text-align: right; padding-right: 12px; user-select: none; }
+.code .ln.on { background: var(--hl); color: var(--hl-ink); }
+.code .ln.diff { box-shadow: inset 4px 0 0 var(--err); }
+.code .ln.on .no { color: var(--hl-ink); font-weight: 700; }
+.code .c { color: var(--comment); }
+.vars { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; font-variant-numeric: tabular-nums; }
+.vars .v { display: flex; justify-content: space-between; padding: 2px 4px; border-bottom: 1px solid var(--rule);
+  font: 16px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.vars .v .k { color: var(--muted); }
+.vars .v.changed .val { color: var(--err); font-weight: 700; }
+.note { color: var(--muted); font-size: 13px; }
+footer {
+  padding: 4px 20px 6px; border-top: 1px solid var(--rule); background: var(--panel);
+  font-size: 12.5px; color: var(--muted);
+}
+footer a { color: var(--line); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+/* screen-size overrides: last, so they win over the base rules */
+@media (min-width: 901px) and (max-height: 820px) {
+  header { padding: 6px 20px 4px; }
+  header h1 { font-size: 19px; }
+  .controls { padding: 5px 20px; }
+  main { gap: 8px; padding: 6px 16px 8px; }
+  .left, .right { gap: 7px; }
+  .card { padding: 5px 8px; }
+  .card h2 { font-size: 12px; margin-bottom: 3px; }
+  .code { font-size: 13.5px; line-height: 1.3; padding: 2px 0; }
+  .vars .v { font-size: 14px; padding: 1px 4px; }
+  .caption { font-size: 16px; min-height: 2.9em; padding: 6px 12px; }
+  .caption .math { font-size: 14px; }
+  .bars svg { height: 112px; }
+  .card.grow svg { min-height: 80px; }
+  footer { padding: 3px 16px 4px; font-size: 11.5px; }
+  #chart { min-height: 200px; }
+}
+@media (min-width: 1800px) and (min-height: 1000px) {
+  body { font-size: 18px; }
+  header h1 { font-size: 26px; }
+  select, button { font-size: 17px; }
+  .card h2 { font-size: 15px; }
+  .code { font-size: 19px; }
+  .vars .v { font-size: 19px; }
+  .caption { font-size: 21px; }
+  .caption .math { font-size: 18px; }
+  .bars svg { height: 200px; }
+}
+</style>
+<style>
+/* bigram-specific additions */
+.card, .card.grow, .code, .vars { min-width: 0; }
+.vars .v .val { overflow-x: auto; white-space: nowrap; margin-left: 8px; }
+.vars .v.wide { grid-column: 1 / -1; }
+.bars { grid-template-columns: 1.15fr 1fr; }
+#scene { min-height: 300px; }
+.code { font-size: 14px; }
+input[type=text] { font: inherit; font-size: 15px; width: 9em; padding: 4px 6px; border-radius: 6px;
+  border: 1px solid var(--btn-edge); background: var(--btn); color: var(--btn-ink); }
+.samples { font: 15px ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--ink); }
+@media (max-width: 900px) { #scene { min-height: 420px; } .bars { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>A bigram language model, line by line</h1>
+  <p>Language models &middot; count every pair of neighbouring letters in 240 names, turn the counts into probabilities, then sample and score names</p>
+</header>
+
+<div class="controls" role="toolbar" aria-label="Demo controls">
+  <div class="group">
+    <button id="bLine" class="primary">Next line<kbd>&rarr;</kbd></button>
+    <button id="bPair">Next pair<kbd>P</kbd></button>
+    <button id="bName">Next name<kbd>N</kbd></button>
+    <button id="bAll">Count all<kbd>F</kbd></button>
+    <button id="bReset">Reset<kbd>R</kbd></button>
+  </div>
+  <span class="sep" aria-hidden="true"></span>
+  <div class="group">
+    <label for="alpha">Smoothing</label>
+    <select id="alpha">
+      <option value="0" selected>none (counts only)</option>
+      <option value="1">add-one (Laplace)</option>
+    </select>
+  </div>
+  <div class="group">
+    <button id="bSample">Sample names<kbd>S</kbd></button>
+  </div>
+  <div class="group">
+    <label for="word">Score a name</label>
+    <input id="word" type="text" value="mila" autocomplete="off" spellcheck="false">
+  </div>
+</div>
+
+<main>
+  <section class="left">
+    <div class="card grow">
+      <svg id="scene" role="img" aria-label="The count of every pair of letters, the current name and the current pair"></svg>
+    </div>
+    <div class="caption" id="caption" aria-live="polite"></div>
+    <div class="bars">
+      <div class="card"><h2 id="rowTitle">P(next letter | current letter)</h2><svg id="barRow"></svg></div>
+      <div class="card"><h2>Scoring a name, and sampled names</h2><svg id="scoreSvg"></svg><div class="samples" id="samples"></div></div>
+    </div>
+  </section>
+
+  <section class="right">
+    <div class="card grow">
+      <h2>bigram.py</h2>
+      <div class="code" id="code"></div>
+    </div>
+    <div class="card">
+      <h2>Variables</h2>
+      <div class="vars" id="vars"></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  &copy; 2026 Kuk Jin Jang, Hongik University &middot;
+  <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>; commercial or
+  closed-source use by permission (<a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>) &middot;
+  the stepper follows the Week 4 demos, whose loop comes from
+  &ldquo;Machine Learning From Scratch, Part 1&rdquo; by
+  <a href="https://www.tiktok.com/@machinelearningtogo">@machinelearningtogo</a> on TikTok &middot;
+  the bigram model and Laplace smoothing follow d2l.ai 9.3
+</footer>
+
+<script>
+"use strict";
+// ---- data ---------------------------------------------------------------------
+// 240 common English given names (the list of the course's PyTorch notebook). "." marks the
+// start and the end of a name, so a model of pairs can begin and stop a name.
+const NAMES = "aaliyah aaron abigail adam addison adeline adrian aiden alexa alexander alice allison alyssa amelia andrew angel anna anthony aria ariana arianna arthur asher aubrey audrey aurora austin autumn ava avery axel bella benjamin bianca brayden brielle brooklyn bryson caleb cameron camila caroline carson carter charles charlotte chloe christian christopher claire colton connor cooper cora daisy daniel david declan delilah dominic dylan easton eleanor elena eli eliana elias elijah elizabeth ella ellie emery emilia emily emma ethan eva evan evelyn everett everly ezekiel ezra faith felix finn fiona frank gabriel gabriella genesis george gianna grace grayson greyson hailey hannah harper hazel henry hudson hugo hunter ian iris isaac isabella isaiah isla ivy jace jack jackson jacob jade james jameson jasmine jason jasper jaxon jaxson jayden jeremiah john jonathan jordan jose joseph josephine joshua josiah julia julian june kayden kaylee kennedy kinsley kylie landon lauren layla leah leo leonardo levi liam lila lillian lily lincoln logan louis lucas lucy luke luna lydia mackenzie madeline madelyn madison mariah mason mateo matthew maverick maya megan mia michael mila miles milo molly morgan naomi natalie nathan nevaeh nicholas nicole noah nolan nora nova oliver olivia oscar owen paisley parker penelope piper quinn rachel rhys riley robert roman rose ruby ryan sadie samantha samuel santiago sarah savannah sawyer scarlett sebastian serenity silas simon skylar sofia sophia sophie stella sydney taylor tessa theodore thomas tobias valentina victor victoria violet vivian william willow wren wyatt xavier zoe zoey".split(" ");
+const CH = ["."].concat([...new Set(NAMES.join(""))].sort());
+const V = CH.length, IDX = Object.fromEntries(CH.map((c, i) => [c, i]));
+
+const CODE = [
+  ["names = NAMES", "# 240 names"],
+  ["chars = ['.'] + sorted(set(''.join(names)))", "# 27 symbols"],
+  ["counts = [[0] * 27 for _ in chars]", "# counts[a][b]: how often b follows a"],
+  ["for name in names:", ""],
+  ["    seq = ['.'] + list(name) + ['.']", "# . marks the start and the end"],
+  ["    for a, b in zip(seq, seq[1:]):", "# every pair of neighbours"],
+  ["        counts[idx[a]][idx[b]] += 1", "# count the pair"],
+  ["alpha = {ALPHA}", "# 0: counts only; 1: add-one smoothing"],
+  ["P = [[(c + alpha) / (sum(row) + 27 * alpha) for c in row] for row in counts]", ""],
+  ["def perplexity(name):", ""],
+  ["    seq = ['.'] + list(name) + ['.']", ""],
+  ["    logp = sum(log(P[idx[a]][idx[b]]) for a, b in zip(seq, seq[1:]))", ""],
+  ["    return exp(-logp / (len(seq) - 1))", "# the average surprise, exponentiated"],
+];
+
+// ---- the counting as a list of events, one per executed line --------------------
+let EV = [], k = 0, counts, samples = [];
+function build() {
+  EV = [{ line: 0 }, { line: 1 }, { line: 2 }];
+  NAMES.forEach((nm, n) => {
+    EV.push({ line: 3, n }); EV.push({ line: 4, n });
+    const seq = ["."].concat([...nm], ["."]);
+    for (let p = 0; p + 1 < seq.length; p++) { EV.push({ line: 5, n, p }); EV.push({ line: 6, n, p, add: [IDX[seq[p]], IDX[seq[p + 1]]] }); }
+  });
+  EV.push({ line: 7 }); EV.push({ line: 8, done: true });
+  k = 0; samples = []; recount();
+}
+function recount() {   // the counts after event k
+  counts = Array.from({ length: V }, () => new Array(V).fill(0));
+  for (let q = 0; q <= k && q < EV.length; q++) if (EV[q].add) counts[EV[q].add[0]][EV[q].add[1]]++;
+}
+const ev = () => EV[Math.min(k, EV.length - 1)];
+const alpha = () => +document.getElementById("alpha").value;
+const done = () => ev().done === true;
+function probs() {
+  const a = alpha();
+  return counts.map((row) => { const s = row.reduce((x, y) => x + y, 0) + V * a; return row.map((c) => (s ? (c + a) / s : 0)); });
+}
+function score(name) {
+  const P = probs(), seq = ["."].concat([...name.toLowerCase()].filter((c) => c in IDX), ["."]);
+  const steps = [];
+  for (let p = 0; p + 1 < seq.length; p++) steps.push({ a: seq[p], b: seq[p + 1], pr: P[IDX[seq[p]]][IDX[seq[p + 1]]] });
+  const logp = steps.reduce((s, x) => s + Math.log(x.pr), 0);
+  return { steps, ppl: Math.exp(-logp / steps.length) };
+}
+function sample(n = 6) {
+  const P = probs(), out = [];
+  for (let s = 0; s < n; s++) {
+    let cur = 0, w = "";
+    for (let t = 0; t < 14; t++) {
+      let r = Math.random(), nx = 0;
+      for (; nx < V - 1; nx++) { r -= P[cur][nx]; if (r <= 0) break; }
+      if (nx === 0) break;
+      w += CH[nx]; cur = nx;
+    }
+    out.push(w || "(empty)");
+  }
+  return out;
+}
+
+// ---- drawing --------------------------------------------------------------------
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const a in attrs) e.setAttribute(a, attrs[a]);
+  if (text !== undefined) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const mono = "ui-monospace, Menlo, Consolas, monospace";
+
+function drawScene() {
+  const svg = document.getElementById("scene"); svg.innerHTML = "";
+  const W = svg.clientWidth || 640, H = svg.clientHeight || 340;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const e = ev(), cs = Math.max(7, Math.min((H - 70) / V, (W * 0.62) / V)), x0 = 26, y0 = 34;
+  el("text", { x: x0, y: 14, fill: css("--muted"), "font-size": 12 }, svg, "counts[a][b]: rows = current letter a, columns = next letter b");
+  const mx = Math.max(1, ...counts.flat());
+  for (let a = 0; a < V; a++) {
+    el("text", { x: x0 - 5, y: y0 + a * cs + cs * 0.75, "text-anchor": "end", "font-size": Math.min(11, cs), "font-family": mono, fill: css("--muted") }, svg, CH[a]);
+    el("text", { x: x0 + a * cs + cs / 2, y: y0 - 4, "text-anchor": "middle", "font-size": Math.min(11, cs), "font-family": mono, fill: css("--muted") }, svg, CH[a]);
+    for (let b = 0; b < V; b++) {
+      const c = counts[a][b], t = c ? 0.12 + 0.88 * Math.sqrt(c / mx) : 0;
+      el("rect", { x: x0 + b * cs, y: y0 + a * cs, width: cs - 0.5, height: cs - 0.5,
+                   fill: c ? `color-mix(in srgb, var(--line) ${Math.round(t * 100)}%, transparent)` : css("--grid") }, svg);
+    }
+  }
+  if (e.add) el("rect", { x: x0 + e.add[1] * cs - 1, y: y0 + e.add[0] * cs - 1, width: cs + 1, height: cs + 1, fill: "none", stroke: css("--exact"), "stroke-width": 2.5 }, svg);
+  // the current name and pair
+  const rx = x0 + V * cs + 24;
+  if (e.n !== undefined) {
+    const seq = ["."].concat([...NAMES[e.n]], ["."]), w = Math.min(26, (W - rx - 10) / seq.length);
+    el("text", { x: rx, y: y0 + 4, fill: css("--muted"), "font-size": 12 }, svg, `name ${e.n + 1} of ${NAMES.length}`);
+    seq.forEach((c, i) => {
+      const on = e.p !== undefined && (i === e.p || i === e.p + 1);
+      el("rect", { x: rx + i * w, y: y0 + 14, width: w - 2, height: w, rx: 3, fill: on ? css("--hl") : "none", stroke: on ? css("--exact") : css("--rule") }, svg);
+      el("text", { x: rx + i * w + w / 2 - 1, y: y0 + 14 + w * 0.7, "text-anchor": "middle", "font-size": Math.min(16, w * 0.6), "font-family": mono, fill: css("--ink") }, svg, c);
+    });
+  }
+  const total = counts.flat().reduce((x, y) => x + y, 0);
+  el("text", { x: rx, y: y0 + 80, fill: css("--ink"), "font-size": 14 }, svg, `pairs counted: ${total}`);
+  if (done()) {
+    el("text", { x: rx, y: y0 + 104, fill: css("--muted"), "font-size": 12.5 }, svg, `pairs never seen: ${counts.flat().filter((c) => c === 0).length} of ${V * V}`);
+  }
+}
+function curRow() { const e = ev(); return e.add ? e.add[0] : done() ? IDX[document.getElementById("word").value.toLowerCase().replace(/[^a-z]/g, "")[0] || "."] ?? 0 : 0; }
+function drawRow() {
+  const svg = document.getElementById("barRow"); svg.innerHTML = "";
+  const W = svg.clientWidth || 360, H = svg.clientHeight || 150; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const a = curRow(), P = probs()[a], bw = (W - 16) / V, mx = Math.max(0.05, ...P);
+  document.getElementById("rowTitle").textContent = `P(next letter | current letter "${CH[a]}")`;
+  P.forEach((p, b) => {
+    const h = (p / mx) * (H - 34);
+    el("rect", { x: 8 + b * bw + 1, y: H - 18 - h, width: bw - 2, height: Math.max(p > 0 ? 1 : 0, h), fill: p > 0 ? css("--line") : "none" }, svg);
+    el("text", { x: 8 + b * bw + bw / 2, y: H - 5, "text-anchor": "middle", "font-size": Math.min(11, bw), "font-family": mono, fill: css("--muted") }, svg, CH[b]);
+  });
+  const zeros = P.filter((p) => p === 0).length;
+  el("text", { x: 8, y: 12, "font-size": 12, fill: css("--ink") }, svg, zeros ? `${zeros} of 27 next letters have probability 0` : "every next letter has a probability above 0");
+}
+function drawScore() {
+  const svg = document.getElementById("scoreSvg"); svg.innerHTML = "";
+  const W = svg.clientWidth || 300, H = 92; svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.style.height = H + "px";
+  const nm = document.getElementById("word").value;
+  if (!done()) { el("text", { x: 6, y: 20, "font-size": 13, fill: css("--muted") }, svg, "count all the names first (F)"); document.getElementById("samples").textContent = ""; return; }
+  const s = score(nm), w = Math.min(46, (W - 10) / s.steps.length);
+  s.steps.forEach((x, i) => {
+    el("text", { x: 6 + i * w + w / 2, y: 14, "text-anchor": "middle", "font-size": 12, "font-family": mono, fill: css("--muted") }, svg, `${x.a}→${x.b}`);
+    el("text", { x: 6 + i * w + w / 2, y: 32, "text-anchor": "middle", "font-size": 11.5, fill: x.pr === 0 ? css("--err") : css("--ink") }, svg, x.pr === 0 ? "0" : x.pr.toFixed(2));
+  });
+  el("text", { x: 6, y: 58, "font-size": 14, fill: css("--ink") }, svg,
+     `perplexity of "${nm}": ${isFinite(s.ppl) ? s.ppl.toFixed(1) : "∞ (a pair never seen)"}`);
+  document.getElementById("samples").textContent = samples.length ? "sampled: " + samples.join("  ") : "press S to sample names";
+}
+
+// ---- code, caption, variables ---------------------------------------------------
+function renderCode() {
+  const box = document.getElementById("code"); box.innerHTML = "";
+  const e = ev(), on = new Set([e.line]);
+  if (done()) [9, 10, 11, 12].forEach((q) => on.add(q));
+  CODE.forEach(([code, com], q) => {
+    const d = document.createElement("div"); d.className = "ln" + (on.has(q) ? " on" : "");
+    const no = document.createElement("span"); no.className = "no"; no.textContent = q + 1;
+    const tx = document.createElement("span"); tx.textContent = code.replace("{ALPHA}", alpha());
+    if (com) { const c = document.createElement("span"); c.className = "c"; c.textContent = "  " + com; tx.appendChild(c); }
+    d.append(no, tx); box.appendChild(d);
+  });
+}
+function caption() {
+  const e = ev(), c = document.getElementById("caption");
+  const m = {
+    0: "The training data: 240 names.",
+    1: "27 symbols: the 26 letters and “.”, which marks the start and the end of a name.",
+    2: "A table of counts, one row per current letter and one column per next letter, all zero.",
+    3: e.n !== undefined ? `Name ${e.n + 1}: “${NAMES[e.n]}”.` : "",
+    4: e.n !== undefined ? `With the markers: ${["."].concat([...NAMES[e.n]], ["."]).join(" ")}.` : "",
+    5: e.add || e.p !== undefined ? "The next pair of neighbouring symbols." : "",
+    6: e.add ? `Count the pair (${CH[e.add[0]]}, ${CH[e.add[1]]}): it now has ${counts[e.add[0]][e.add[1]]}. The estimate is the count of the pair divided by the count of its first letter (d2l 9.3).` : "",
+    7: alpha() ? "Add-one smoothing: one extra count for every pair, so no pair has probability 0 (Laplace smoothing, d2l 9.3)." : "No smoothing: a pair that never occurred gets probability 0.",
+    8: alpha() ? "Every row is divided by its total plus 27; a pair never seen gets 1/(total + 27). Sample names (S) and score one." :
+                 "Every row of counts is divided by its total: these relative frequencies are the maximum likelihood estimate. Sample names (S) and score one.",
+  }[e.line];
+  c.textContent = m || "";
+}
+function renderVars() {
+  const e = ev(), box = document.getElementById("vars"); box.innerHTML = "";
+  const add = (kk, v, wide) => { const d = document.createElement("div"); d.className = "v" + (wide ? " wide" : "");
+    d.innerHTML = `<span class="k">${kk}</span><span class="val">${v}</span>`; box.appendChild(d); };
+  add("name", e.n !== undefined ? `"${NAMES[e.n]}"` : "–"); add("pair (a, b)", e.add ? `(${CH[e.add[0]]}, ${CH[e.add[1]]})` : "–");
+  add("counts[a][b]", e.add ? counts[e.add[0]][e.add[1]] : "–");
+  add("row total n(a)", e.add ? counts[e.add[0]].reduce((x, y) => x + y, 0) : "–");
+  add("parameters", `27 × 27 = ${V * V} probabilities`, true);
+  add("perplexity of a uniform model", "27 (the number of symbols)", true);
+}
+function render() { recount(); drawScene(); drawRow(); drawScore(); renderCode(); caption(); renderVars(); }
+
+// ---- controls -------------------------------------------------------------------
+function step(pred) { do { k++; } while (k < EV.length - 1 && !pred(EV[k])); k = Math.min(k, EV.length - 1); render(); }
+document.getElementById("bLine").onclick = () => step(() => true);
+document.getElementById("bPair").onclick = () => step((x) => !!x.add);
+document.getElementById("bName").onclick = () => { const n = ev().n ?? -1; step((x) => x.line === 4 && x.n > n || x.done); };
+document.getElementById("bAll").onclick = () => { k = EV.length - 1; render(); };
+document.getElementById("bReset").onclick = () => { build(); render(); };
+document.getElementById("bSample").onclick = () => { if (!done()) { k = EV.length - 1; } recount(); samples = sample(); render(); };
+document.getElementById("alpha").onchange = () => { samples = []; render(); };
+document.getElementById("word").oninput = render;
+document.addEventListener("keydown", (x) => {
+  if (x.target.tagName === "SELECT" || x.target.tagName === "INPUT") return;
+  const key = x.key.toLowerCase();
+  if (key === "arrowright") { x.preventDefault(); document.getElementById("bLine").click(); }
+  else if (key === "p") document.getElementById("bPair").click();
+  else if (key === "n") document.getElementById("bName").click();
+  else if (key === "f") document.getElementById("bAll").click();
+  else if (key === "r") document.getElementById("bReset").click();
+  else if (key === "s") document.getElementById("bSample").click();
+});
+window.addEventListener("resize", render);
+build(); render();
+</script>
+</body>
+</html>

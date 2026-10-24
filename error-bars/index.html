@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How Much to Trust a Test Loss</title>
+<meta name="description" content="Error bars demo: the test loss of a language model is the mean of per-token losses. Draw test sets of n tokens from the 243 validation tokens of the course's MLP language model and RNN, and watch the means vary by sigma over root n, follow the normal curve, and fall inside 95% intervals about 95% of the time.">
+<!--
+  (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
+  licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
+  Commercial use, closed-source use, or any other licensing: by permission,
+  jangkj@hongik.ac.kr.
+
+  Make-up 1 demo (calendar Week 10) --- how much to trust a test loss.
+  The per-token validation losses of the MLP language model (step 450) and the character RNN (step
+  1,150) on the same 243 tokens, from lectures/current/figures/make_figures_wk08_errorbars.py. Test sets
+  of n tokens are drawn from them with replacement; the page shows each set's mean and its 95% interval
+  m +- 1.96 s / sqrt(n), the histogram of all means against the normal curve, and how often the
+  intervals contain the mean of all 243 tokens. The paired mode uses the per-token differences.
+  Keys: Right arrow = next line, D = draw a test set, M = draw 1,000, R = reset.
+  One self-contained file: no server, no network, no libraries.
+-->
+<style>
+:root {
+  --bg: #ffffff;
+  --panel: #f4f5f7;
+  --ink: #1a1a1a;
+  --muted: #5b6068;
+  --rule: #d9dce1;
+  --grid: #eceef1;
+  --line: #2f6fbf;
+  --err: #c00000;
+  --pos: #1e8e5a;
+  --exact: #b7791f;
+  --hl: #fff1c2;
+  --hl-ink: #1a1a1a;
+  --btn: #ffffff;
+  --btn-ink: #1a1a1a;
+  --btn-edge: #b9bec6;
+  --btn-primary: #2f6fbf;
+  --btn-primary-ink: #ffffff;
+  --code-bg: #fbfbfc;
+  --comment: #8a8f98;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418;
+    --panel: #1a1f26;
+    --ink: #e8eaed;
+    --muted: #9aa3ae;
+    --rule: #2c333c;
+    --grid: #222931;
+    --line: #6ea8ff;
+    --err: #ff6b6b;
+    --pos: #4fcf8e;
+    --exact: #e0b04f;
+    --hl: #3a3320;
+    --hl-ink: #fff4d6;
+    --btn: #1f252d;
+    --btn-ink: #e8eaed;
+    --btn-edge: #3a424d;
+    --btn-primary: #4a86d8;
+    --btn-primary-ink: #0b0e12;
+    --code-bg: #151a20;
+    --comment: #7d8793;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+  --grid: #222931; --line: #6ea8ff; --err: #ff6b6b; --pos: #4fcf8e; --exact: #e0b04f;
+  --hl: #3a3320; --hl-ink: #fff4d6; --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d;
+  --btn-primary: #4a86d8; --btn-primary-ink: #0b0e12; --code-bg: #151a20; --comment: #7d8793;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+}
+header {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px;
+  padding: 10px 20px 6px; border-bottom: 1px solid var(--rule);
+}
+header h1 { font-size: 22px; margin: 0; font-weight: 650; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); font-size: 14px; }
+.controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 8px 20px; border-bottom: 1px solid var(--rule); background: var(--panel);
+}
+.controls .group { display: flex; align-items: center; gap: 6px; }
+.controls .sep { width: 1px; align-self: stretch; background: var(--rule); margin: 0 4px; }
+label { font-size: 14px; color: var(--muted); }
+select, button, input[type=range] { font: inherit; font-size: 15px; }
+select {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 8px;
+}
+button {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
+}
+button.primary { background: var(--btn-primary); color: var(--btn-primary-ink); border-color: var(--btn-primary); }
+button:hover { filter: brightness(0.97); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--line); outline-offset: 2px; }
+kbd {
+  font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; color: inherit; opacity: 0.75;
+  border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; margin-left: 4px;
+}
+main {
+  display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 12px; padding: 10px 20px 12px;
+}
+@media (min-width: 901px) and (min-height: 600px) {
+  body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  main { flex: 1; min-height: 0; }
+}
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+@media (max-width: 1440px) { kbd { display: none; } }
+
+
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px; }
+.card h2 { font-size: 15px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.left, .right { display: grid; gap: 10px; min-width: 0; min-height: 0; }
+.left { grid-template-rows: minmax(0, 1fr) auto auto; }
+.right { grid-template-rows: minmax(0, 1fr) auto; }
+.card.grow .code { flex: 1; overflow: auto; }
+.card.grow { display: flex; flex-direction: column; min-height: 0; }
+.card.grow svg { flex: 1; min-height: 110px; height: 100%; }
+#chart { min-height: 250px; }
+.bars svg { height: 150px; }
+svg { display: block; width: 100%; }
+.caption {
+  font-size: 18px; min-height: 3.1em; padding: 8px 14px;
+  background: var(--bg); border: 1px solid var(--rule); border-left: 4px solid var(--line);
+  border-radius: 8px;
+}
+.caption .math { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 16px; }
+.bars { display: grid; grid-template-columns: 1fr 1fr 1.25fr; gap: 10px; }
+@media (max-width: 900px) { .bars { grid-template-columns: 1fr 1fr; } }
+.code {
+  font: 15.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  background: var(--code-bg); border: 1px solid var(--rule); border-radius: 8px;
+  padding: 6px 0; overflow-x: auto;
+}
+.code .ln { display: grid; grid-template-columns: 2.4em 1fr; padding: 0 10px 0 0; white-space: pre; }
+.code .ln .no { color: var(--muted); text-align: right; padding-right: 12px; user-select: none; }
+.code .ln.on { background: var(--hl); color: var(--hl-ink); }
+.code .ln.diff { box-shadow: inset 4px 0 0 var(--err); }
+.code .ln.on .no { color: var(--hl-ink); font-weight: 700; }
+.code .c { color: var(--comment); }
+.vars { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; font-variant-numeric: tabular-nums; }
+.vars .v { display: flex; justify-content: space-between; padding: 2px 4px; border-bottom: 1px solid var(--rule);
+  font: 16px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.vars .v .k { color: var(--muted); }
+.vars .v.changed .val { color: var(--err); font-weight: 700; }
+.note { color: var(--muted); font-size: 13px; }
+footer {
+  padding: 4px 20px 6px; border-top: 1px solid var(--rule); background: var(--panel);
+  font-size: 12.5px; color: var(--muted);
+}
+footer a { color: var(--line); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+/* screen-size overrides: last, so they win over the base rules */
+@media (min-width: 901px) and (max-height: 820px) {
+  header { padding: 6px 20px 4px; }
+  header h1 { font-size: 19px; }
+  .controls { padding: 5px 20px; }
+  main { gap: 8px; padding: 6px 16px 8px; }
+  .left, .right { gap: 7px; }
+  .card { padding: 5px 8px; }
+  .card h2 { font-size: 12px; margin-bottom: 3px; }
+  .code { font-size: 13.5px; line-height: 1.3; padding: 2px 0; }
+  .vars .v { font-size: 14px; padding: 1px 4px; }
+  .caption { font-size: 16px; min-height: 2.9em; padding: 6px 12px; }
+  .caption .math { font-size: 14px; }
+  .bars svg { height: 112px; }
+  .card.grow svg { min-height: 80px; }
+  footer { padding: 3px 16px 4px; font-size: 11.5px; }
+  #chart { min-height: 200px; }
+}
+@media (min-width: 1800px) and (min-height: 1000px) {
+  body { font-size: 18px; }
+  header h1 { font-size: 26px; }
+  select, button { font-size: 17px; }
+  .card h2 { font-size: 15px; }
+  .code { font-size: 19px; }
+  .vars .v { font-size: 19px; }
+  .caption { font-size: 21px; }
+  .caption .math { font-size: 18px; }
+  .bars svg { height: 200px; }
+}
+</style>
+<style>
+.card, .card.grow, .code, .vars { min-width: 0; }
+.vars .v .val { overflow-x: auto; white-space: nowrap; margin-left: 8px; }
+.vars .v.wide { grid-column: 1 / -1; }
+.bars { grid-template-columns: 1fr 1fr; }
+#scene { min-height: 300px; }
+.code { font-size: 14px; }
+@media (max-width: 900px) { #scene { min-height: 420px; } .bars { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>How much to trust a test loss</h1>
+  <p>Error bars &middot; a test loss is the mean of per-token losses; draw new test sets and watch the mean vary by σ/√n</p>
+</header>
+
+<div class="controls" role="toolbar" aria-label="Demo controls">
+  <div class="group">
+    <button id="bLine" class="primary">Next line<kbd>&rarr;</kbd></button>
+    <button id="bDraw">Draw a test set<kbd>D</kbd></button>
+    <button id="bMany">Draw 1,000<kbd>M</kbd></button>
+    <button id="bReset">Reset<kbd>R</kbd></button>
+  </div>
+  <span class="sep" aria-hidden="true"></span>
+  <div class="group">
+    <label for="n">Tokens per test set n</label>
+    <select id="n">
+      <option value="5">5</option>
+      <option value="30" selected>30</option>
+      <option value="100">100</option>
+      <option value="243">243</option>
+    </select>
+  </div>
+  <div class="group">
+    <label for="model">Model</label>
+    <select id="model">
+      <option value="mlp" selected>MLP language model</option>
+      <option value="rnn">RNN</option>
+      <option value="diff">MLP minus RNN (paired)</option>
+    </select>
+  </div>
+</div>
+
+<main>
+  <section class="left">
+    <div class="card grow">
+      <svg id="scene" role="img" aria-label="The per-token losses of the drawn test set, its mean and its 95% interval, and the histogram of the means of all test sets drawn"></svg>
+    </div>
+    <div class="caption" id="caption" aria-live="polite"></div>
+    <div class="bars">
+      <div class="card"><h2>The last 20 intervals (95%)</h2><svg id="barInt"></svg></div>
+      <div class="card"><h2>How many intervals contain the full mean</h2><svg id="barCover"></svg></div>
+    </div>
+  </section>
+
+  <section class="right">
+    <div class="card grow">
+      <h2>error_bar.py</h2>
+      <div class="code" id="code"></div>
+    </div>
+    <div class="card">
+      <h2>Variables</h2>
+      <div class="vars" id="vars"></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  &copy; 2026 Kuk Jin Jang, Hongik University &middot;
+  <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>; commercial or
+  closed-source use by permission (<a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>) &middot;
+  the stepper follows the Week 4 demos, whose loop comes from
+  &ldquo;Machine Learning From Scratch, Part 1&rdquo; by
+  <a href="https://www.tiktok.com/@machinelearningtogo">@machinelearningtogo</a> on TikTok &middot;
+  expectation, variance and the 1/√n rate follow d2l.ai 2.6
+</footer>
+
+<script>
+"use strict";
+// The per-token validation losses (nats) of the course's MLP language model (step 450) and character RNN
+// (step 1,150) on the same 243 tokens of the 36 validation names.
+const DATA = { mlp: [3.459,1.429,3.983,1.854,1.816,0.832,0.353,3.612,2.092,3.775,2.856,1.333,1.509,2.057,2.199,1.351,1.980,1.201,3.988,2.153,1.602,2.057,3.492,1.605,3.438,2.628,0.973,0.382,3.621,1.924,2.259,1.804,4.098,2.040,0.589,0.610,3.898,2.491,1.310,1.182,6.680,2.538,1.802,3.898,2.585,2.470,3.954,3.734,4.493,2.316,1.067,0.743,2.057,4.846,1.413,1.247,2.826,2.252,1.174,5.630,5.070,1.930,0.982,0.863,4.584,1.637,3.558,1.489,4.262,2.196,1.727,0.245,2.231,0.879,0.888,5.741,1.166,4.060,1.486,3.612,1.742,2.337,3.823,1.332,1.484,0.895,4.332,5.257,2.093,3.406,1.614,2.654,4.185,1.519,2.173,3.111,0.995,4.150,0.413,3.898,2.437,2.936,8.452,0.840,3.354,1.216,3.444,2.642,3.747,1.964,3.511,2.197,7.283,2.682,3.459,1.494,4.191,2.257,1.643,2.802,1.704,4.203,4.142,0.545,4.308,2.357,2.676,3.781,1.879,1.471,2.083,1.664,1.706,2.252,1.375,3.404,1.519,3.408,2.266,0.688,4.185,5.133,3.226,1.926,2.445,1.213,2.802,2.714,3.390,3.152,3.522,1.674,2.057,3.492,3.981,6.032,7.084,4.918,1.368,4.308,2.357,4.015,3.859,1.473,1.246,0.352,2.057,2.959,2.236,1.955,2.802,2.057,5.287,3.280,1.130,0.810,2.231,0.879,1.294,1.118,3.675,1.042,2.894,2.544,1.635,4.872,4.934,1.362,0.921,2.802,1.704,3.745,1.043,2.758,2.619,3.303,3.548,2.722,2.116,1.243,5.889,4.973,1.352,3.612,3.679,3.121,2.011,1.311,2.057,2.444,5.507,1.794,1.893,1.663,2.057,2.444,2.564,4.182,1.951,6.207,0.926,2.231,0.879,2.854,1.958,2.440,1.213,4.308,1.240,2.985,1.695,2.469,3.800,3.695,2.919,2.419,0.728,6.372,2.786,2.375,2.418,3.288,0.744], rnn: [3.346,1.143,3.736,2.685,1.329,0.719,0.342,3.778,1.941,2.975,1.460,1.561,0.490,2.095,1.837,1.477,1.087,1.256,3.915,2.359,0.842,2.095,2.569,2.822,3.757,2.289,2.768,0.144,3.603,3.518,2.118,3.345,2.721,1.402,0.505,0.152,4.036,1.999,1.771,1.796,4.647,1.691,1.345,4.036,2.784,2.851,3.939,4.326,5.825,3.074,3.174,0.232,2.095,4.768,1.773,1.643,3.000,2.591,1.354,5.120,3.860,1.606,1.630,0.364,4.211,1.651,3.407,2.010,3.625,2.487,2.774,0.172,2.264,1.338,0.799,5.788,1.081,3.406,0.241,3.778,1.365,2.478,3.009,1.225,2.990,1.276,4.265,3.938,2.551,2.694,2.873,2.842,4.209,1.543,2.977,1.748,1.059,5.349,0.277,4.036,2.279,2.874,5.650,0.644,3.871,3.026,1.857,0.703,3.570,1.419,3.252,1.803,4.770,3.053,3.346,2.065,3.751,1.548,1.118,2.598,2.363,3.612,3.886,1.746,4.255,1.698,2.514,3.095,1.691,1.852,3.056,1.213,0.970,2.591,1.441,4.052,3.129,2.876,1.590,0.562,4.209,3.919,2.146,1.308,2.968,1.602,2.598,2.991,2.941,1.876,3.977,0.427,2.095,2.569,3.399,4.610,5.342,1.973,0.267,4.255,1.698,3.655,2.211,0.963,1.645,0.153,2.095,2.668,2.457,3.578,2.598,2.334,4.583,1.626,2.053,0.492,2.264,1.338,1.891,1.810,2.180,1.260,2.678,3.049,1.778,3.979,4.688,1.676,0.724,2.598,2.363,3.900,1.861,1.524,2.738,4.549,3.025,2.398,2.241,1.714,5.845,5.372,1.922,3.778,3.886,2.207,1.471,0.715,2.095,3.071,4.113,1.270,1.614,2.449,2.095,3.071,2.616,4.176,2.322,5.618,0.398,2.264,1.338,2.559,2.082,2.950,1.617,4.255,1.167,2.871,1.909,2.626,3.885,3.096,1.882,3.297,0.199,5.334,2.661,2.780,2.511,4.340,1.094] };
+DATA.diff = DATA.mlp.map((x, i) => x - DATA.rnn[i]);
+const mean = (a) => a.reduce((s, x) => s + x, 0) / a.length;
+const sd = (a) => { const m = mean(a); return Math.sqrt(a.reduce((s, x) => s + (x - m) * (x - m), 0) / (a.length - 1)); };
+const CODE = [
+  ["losses = per_token_losses(model, test_tokens)", "# one number per token"],
+  ["n = len(losses)", ""],
+  ["m = losses.mean()", "# the test loss: a sample mean"],
+  ["s = losses.std(ddof=1)", "# the spread of one token's loss"],
+  ["se = s / sqrt(n)", "# the spread of the mean: sigma / sqrt(n)"],
+  ["lo, hi = m - 1.96 * se, m + 1.96 * se", "# a 95% interval (CLT)"],
+];
+let line, draws, cur;
+const key = () => document.getElementById("model").value;
+const N = () => +document.getElementById("n").value;
+function reset() { line = -1; draws = []; cur = null; }
+function drawSet() {
+  const d = DATA[key()], n = N(), xs = Array.from({ length: n }, () => d[Math.floor(Math.random() * d.length)]);
+  const m = mean(xs), s = sd(xs), se = s / Math.sqrt(n);
+  return { xs, m, s, se, lo: m - 1.96 * se, hi: m + 1.96 * se };
+}
+function nextLine() {
+  if (line === -1 || line === 5) { cur = drawSet(); line = 0; }
+  else { line++; if (line === 5) draws.push(cur); }
+}
+
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const a in attrs) e.setAttribute(a, attrs[a]);
+  if (text !== undefined) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function range() { return key() === "diff" ? [-3, 3] : [0, 6]; }
+function drawScene() {
+  const svg = document.getElementById("scene"); svg.innerHTML = "";
+  const W = svg.clientWidth || 640, H = svg.clientHeight || 340; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const [a, b] = range(), x0 = 40, x1 = W - 20, X = (v) => x0 + (Math.min(b, Math.max(a, v)) - a) / (b - a) * (x1 - x0);
+  const full = mean(DATA[key()]), sfull = sd(DATA[key()]);
+  // top: the drawn test set
+  const yT = 60;
+  el("text", { x: 8, y: 16, "font-size": 12, fill: css("--muted") }, svg, cur ? `the ${cur.xs.length} per-token losses of this test set (dots), their mean and 95% interval` : "press → or D to draw a test set of n tokens");
+  el("line", { x1: x0, x2: x1, y1: yT, y2: yT, stroke: css("--rule") }, svg);
+  if (cur && line >= 0) {
+    cur.xs.forEach((v, i) => el("circle", { cx: X(v), cy: yT - 8 - (i % 5) * 5, r: 3, fill: css("--line"), opacity: 0.7 }, svg));
+    if (line >= 2) { el("line", { x1: X(cur.m), x2: X(cur.m), y1: yT - 40, y2: yT + 8, stroke: css("--err"), "stroke-width": 2.5 }, svg);
+      el("text", { x: X(cur.m), y: yT + 22, "text-anchor": "middle", "font-size": 12, fill: css("--err") }, svg, `m = ${cur.m.toFixed(2)}`); }
+    if (line >= 5) el("line", { x1: X(cur.lo), x2: X(cur.hi), y1: yT + 30, y2: yT + 30, stroke: css("--err"), "stroke-width": 3 }, svg);
+  }
+  // bottom: histogram of the means
+  const yB = H - 30, top = yT + 60, nb = 60, w = (x1 - x0) / nb, cnt = new Array(nb).fill(0);
+  for (const d of draws) { const k = Math.floor((d.m - a) / (b - a) * nb); if (k >= 0 && k < nb) cnt[k]++; }
+  const mx = Math.max(1, ...cnt);
+  el("text", { x: 8, y: top - 8, "font-size": 12, fill: css("--muted") }, svg, `the means of all ${draws.length} test sets drawn, with the normal curve of sd σ/√n = ${(sfull / Math.sqrt(N())).toFixed(3)}`);
+  cnt.forEach((c, k) => { const h = c / mx * (yB - top - 10); el("rect", { x: x0 + k * w, y: yB - h, width: w - 1, height: h, fill: css("--line") }, svg); });
+  if (draws.length > 20) {
+    const sdm = sfull / Math.sqrt(N()), area = draws.length * (b - a) / nb;
+    const pts = []; for (let i = 0; i <= 200; i++) { const v = a + (b - a) * i / 200, y = area * Math.exp(-((v - full) ** 2) / (2 * sdm * sdm)) / (sdm * Math.sqrt(2 * Math.PI));
+      pts.push(`${i ? "L" : "M"}${X(v).toFixed(1)} ${(yB - y / mx * (yB - top - 10)).toFixed(1)}`); }
+    el("path", { d: pts.join(""), fill: "none", stroke: css("--err"), "stroke-width": 1.8 }, svg);
+  }
+  el("line", { x1: X(full), x2: X(full), y1: top, y2: yB, stroke: css("--pos"), "stroke-dasharray": "4 3" }, svg);
+  el("text", { x: X(full) + 4, y: top + 10, "font-size": 11.5, fill: css("--pos") }, svg, `all 243 tokens: ${full.toFixed(3)}`);
+  el("line", { x1: x0, x2: x1, y1: yB, y2: yB, stroke: css("--rule") }, svg);
+  for (let v = a; v <= b; v += 1) el("text", { x: X(v), y: yB + 16, "text-anchor": "middle", "font-size": 11, fill: css("--muted") }, svg, v);
+}
+function drawInt() {
+  const svg = document.getElementById("barInt"); svg.innerHTML = "";
+  const W = svg.clientWidth || 300, H = svg.clientHeight || 150; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const [a, b] = range(), full = mean(DATA[key()]), X = (v) => 10 + (Math.min(b, Math.max(a, v)) - a) / (b - a) * (W - 20);
+  const last = draws.slice(-20), rh = (H - 10) / 20;
+  el("line", { x1: X(full), x2: X(full), y1: 0, y2: H, stroke: css("--pos"), "stroke-dasharray": "4 3" }, svg);
+  last.forEach((d, i) => { const hit = d.lo <= full && full <= d.hi;
+    el("line", { x1: X(d.lo), x2: X(d.hi), y1: 5 + i * rh + rh / 2, y2: 5 + i * rh + rh / 2, stroke: hit ? css("--line") : css("--err"), "stroke-width": 2.5 }, svg); });
+}
+function drawCover() {
+  const svg = document.getElementById("barCover"); svg.innerHTML = "";
+  const W = svg.clientWidth || 300, H = svg.clientHeight || 150; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const full = mean(DATA[key()]), hits = draws.filter((d) => d.lo <= full && full <= d.hi).length, n = draws.length;
+  const f = n ? hits / n : 0;
+  el("rect", { x: 10, y: 50, width: (W - 20), height: 30, fill: css("--panel"), stroke: css("--rule") }, svg);
+  el("rect", { x: 10, y: 50, width: (W - 20) * f, height: 30, fill: css("--line") }, svg);
+  el("line", { x1: 10 + (W - 20) * 0.95, x2: 10 + (W - 20) * 0.95, y1: 42, y2: 88, stroke: css("--err"), "stroke-width": 2 }, svg);
+  el("text", { x: 10 + (W - 20) * 0.95, y: 36, "text-anchor": "middle", "font-size": 11.5, fill: css("--err") }, svg, "95%");
+  el("text", { x: 10, y: 112, "font-size": 14, fill: css("--ink") }, svg, n ? `${hits} of ${n} intervals (${(100 * f).toFixed(1)}%) contain ${full.toFixed(3)}` : "no test sets yet");
+}
+function renderCode() {
+  const box = document.getElementById("code"); box.innerHTML = "";
+  CODE.forEach(([code, com], q) => {
+    const d = document.createElement("div"); d.className = "ln" + (q === line ? " on" : "");
+    const no = document.createElement("span"); no.className = "no"; no.textContent = q + 1;
+    const tx = document.createElement("span"); tx.textContent = code;
+    if (com) { const c = document.createElement("span"); c.className = "c"; c.textContent = "  " + com; tx.appendChild(c); }
+    d.append(no, tx); box.appendChild(d);
+  });
+}
+function caption() {
+  const c = document.getElementById("caption"), n = N();
+  const m = {
+    [-1]: "The test loss is the average of one loss per token. Different test sets give different averages. How different? Press → to go line by line, D for a whole test set.",
+    0: `Draw a test set of ${n} tokens at random from the 243, and compute the loss of each token.`,
+    1: `n = ${n}.`,
+    2: cur ? `The test loss is their mean, ${cur.m.toFixed(3)}. The mean of all 243 tokens is ${mean(DATA[key()]).toFixed(3)}.` : "",
+    3: cur ? `The losses of single tokens spread widely: standard deviation ${cur.s.toFixed(3)}.` : "",
+    4: cur ? `The mean of n tokens spreads √n times less: ${cur.s.toFixed(3)} / √${n} = ${cur.se.toFixed(3)}, the standard error.` : "",
+    5: cur ? `By the central limit theorem the mean is close to normal, so m ± 1.96 standard errors, [${cur.lo.toFixed(3)}, ${cur.hi.toFixed(3)}], contains the true mean in about 95% of test sets. Draw 1,000 to check.` : "",
+  }[line];
+  c.textContent = m || "";
+}
+function renderVars() {
+  const box = document.getElementById("vars"); box.innerHTML = "";
+  const add = (kk, v, wide) => { const d = document.createElement("div"); d.className = "v" + (wide ? " wide" : "");
+    d.innerHTML = `<span class="k">${kk}</span><span class="val">${v}</span>`; box.appendChild(d); };
+  const d = DATA[key()];
+  add("n", N()); add("test sets drawn", draws.length);
+  add("m", cur ? cur.m.toFixed(3) : "–"); add("s", cur ? cur.s.toFixed(3) : "–");
+  add("se = s/√n", cur ? cur.se.toFixed(3) : "–"); add("interval", cur ? `[${cur.lo.toFixed(2)}, ${cur.hi.toFixed(2)}]` : "–");
+  add("all 243 tokens", `mean ${mean(d).toFixed(3)}, sd ${sd(d).toFixed(3)}`, true);
+  add("sd of the means drawn", draws.length > 1 ? sd(draws.map((x) => x.m)).toFixed(3) + ` (σ/√n = ${(sd(d) / Math.sqrt(N())).toFixed(3)})` : "–", true);
+}
+function render() { drawScene(); drawInt(); drawCover(); renderCode(); caption(); renderVars(); }
+document.getElementById("bLine").onclick = () => { nextLine(); render(); };
+document.getElementById("bDraw").onclick = () => { cur = drawSet(); draws.push(cur); line = 5; render(); };
+document.getElementById("bMany").onclick = () => { for (let i = 0; i < 1000; i++) { cur = drawSet(); draws.push(cur); } line = 5; render(); };
+document.getElementById("bReset").onclick = () => { reset(); render(); };
+document.getElementById("n").onchange = () => { reset(); render(); };
+document.getElementById("model").onchange = () => { reset(); render(); };
+document.addEventListener("keydown", (x) => {
+  if (x.target.tagName === "SELECT" || x.target.tagName === "INPUT") return;
+  const k = x.key.toLowerCase();
+  if (k === "arrowright") { x.preventDefault(); document.getElementById("bLine").click(); }
+  else if (k === "d") document.getElementById("bDraw").click();
+  else if (k === "m") document.getElementById("bMany").click();
+  else if (k === "r") document.getElementById("bReset").click();
+});
+window.addEventListener("resize", render);
+reset(); render();
+</script>
+</body>
+</html>

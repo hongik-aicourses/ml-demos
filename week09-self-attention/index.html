@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Self-Attention on a Sentence</title>
+<meta name="description" content="Self-attention demo: the six tokens of 'the cat sat on the mat' as queries, keys and values (d = 4, two heads); the score matrix, the causal mask, the softmax row by row and the outputs; rotary position embedding (RoPE), whose scores depend only on the distance between tokens.">
+<!--
+  (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
+  licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
+  Commercial use, closed-source use, or any other licensing: by permission,
+  jangkj@hongik.ac.kr.
+
+  Week 9, Hour 2 demo (calendar Week 11, Wed 11 Nov) --- self-attention on a sentence.
+  The example of the slides (lectures/current/figures/data/wk09sa_example.json): embeddings with d = 4
+  and two heads of W_q, W_k, W_v. Self-attention in matrix form (d2l 11.6.1), the causal mask,
+  RoPE in one convention: pair j of a query or key at position m turned by m * 10000^(-2j/d)
+  (Su et al., 2021). Without the mask and positions the two tokens "the" get identical outputs;
+  with RoPE, shifting every position leaves the scores unchanged.
+  Keys: Right arrow = next line, F = run all, R = reset.
+  One self-contained file: no server, no network, no libraries.
+-->
+<style>
+:root {
+  --bg: #ffffff;
+  --panel: #f4f5f7;
+  --ink: #1a1a1a;
+  --muted: #5b6068;
+  --rule: #d9dce1;
+  --grid: #eceef1;
+  --line: #2f6fbf;
+  --err: #c00000;
+  --pos: #1e8e5a;
+  --exact: #b7791f;
+  --hl: #fff1c2;
+  --hl-ink: #1a1a1a;
+  --btn: #ffffff;
+  --btn-ink: #1a1a1a;
+  --btn-edge: #b9bec6;
+  --btn-primary: #2f6fbf;
+  --btn-primary-ink: #ffffff;
+  --code-bg: #fbfbfc;
+  --comment: #8a8f98;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418;
+    --panel: #1a1f26;
+    --ink: #e8eaed;
+    --muted: #9aa3ae;
+    --rule: #2c333c;
+    --grid: #222931;
+    --line: #6ea8ff;
+    --err: #ff6b6b;
+    --pos: #4fcf8e;
+    --exact: #e0b04f;
+    --hl: #3a3320;
+    --hl-ink: #fff4d6;
+    --btn: #1f252d;
+    --btn-ink: #e8eaed;
+    --btn-edge: #3a424d;
+    --btn-primary: #4a86d8;
+    --btn-primary-ink: #0b0e12;
+    --code-bg: #151a20;
+    --comment: #7d8793;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+  --grid: #222931; --line: #6ea8ff; --err: #ff6b6b; --pos: #4fcf8e; --exact: #e0b04f;
+  --hl: #3a3320; --hl-ink: #fff4d6; --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d;
+  --btn-primary: #4a86d8; --btn-primary-ink: #0b0e12; --code-bg: #151a20; --comment: #7d8793;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+}
+header {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px;
+  padding: 10px 20px 6px; border-bottom: 1px solid var(--rule);
+}
+header h1 { font-size: 22px; margin: 0; font-weight: 650; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); font-size: 14px; }
+.controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 8px 20px; border-bottom: 1px solid var(--rule); background: var(--panel);
+}
+.controls .group { display: flex; align-items: center; gap: 6px; }
+.controls .sep { width: 1px; align-self: stretch; background: var(--rule); margin: 0 4px; }
+label { font-size: 14px; color: var(--muted); }
+select, button, input[type=range] { font: inherit; font-size: 15px; }
+select {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 8px;
+}
+button {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
+}
+button.primary { background: var(--btn-primary); color: var(--btn-primary-ink); border-color: var(--btn-primary); }
+button:hover { filter: brightness(0.97); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--line); outline-offset: 2px; }
+kbd {
+  font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; color: inherit; opacity: 0.75;
+  border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; margin-left: 4px;
+}
+main {
+  display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 12px; padding: 10px 20px 12px;
+}
+@media (min-width: 901px) and (min-height: 600px) {
+  body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  main { flex: 1; min-height: 0; }
+}
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+@media (max-width: 1440px) { kbd { display: none; } }
+
+
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px; }
+.card h2 { font-size: 15px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.left, .right { display: grid; gap: 10px; min-width: 0; min-height: 0; }
+.left { grid-template-rows: minmax(0, 1fr) auto auto; }
+.right { grid-template-rows: minmax(0, 1fr) auto; }
+.card.grow .code { flex: 1; overflow: auto; }
+.card.grow { display: flex; flex-direction: column; min-height: 0; }
+.card.grow svg { flex: 1; min-height: 110px; height: 100%; }
+#chart { min-height: 250px; }
+.bars svg { height: 150px; }
+svg { display: block; width: 100%; }
+.caption {
+  font-size: 18px; min-height: 3.1em; padding: 8px 14px;
+  background: var(--bg); border: 1px solid var(--rule); border-left: 4px solid var(--line);
+  border-radius: 8px;
+}
+.caption .math { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 16px; }
+.bars { display: grid; grid-template-columns: 1fr 1fr 1.25fr; gap: 10px; }
+@media (max-width: 900px) { .bars { grid-template-columns: 1fr 1fr; } }
+.code {
+  font: 15.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  background: var(--code-bg); border: 1px solid var(--rule); border-radius: 8px;
+  padding: 6px 0; overflow-x: auto;
+}
+.code .ln { display: grid; grid-template-columns: 2.4em 1fr; padding: 0 10px 0 0; white-space: pre; }
+.code .ln .no { color: var(--muted); text-align: right; padding-right: 12px; user-select: none; }
+.code .ln.on { background: var(--hl); color: var(--hl-ink); }
+.code .ln.diff { box-shadow: inset 4px 0 0 var(--err); }
+.code .ln.on .no { color: var(--hl-ink); font-weight: 700; }
+.code .c { color: var(--comment); }
+.vars { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; font-variant-numeric: tabular-nums; }
+.vars .v { display: flex; justify-content: space-between; padding: 2px 4px; border-bottom: 1px solid var(--rule);
+  font: 16px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.vars .v .k { color: var(--muted); }
+.vars .v.changed .val { color: var(--err); font-weight: 700; }
+.note { color: var(--muted); font-size: 13px; }
+footer {
+  padding: 4px 20px 6px; border-top: 1px solid var(--rule); background: var(--panel);
+  font-size: 12.5px; color: var(--muted);
+}
+footer a { color: var(--line); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+/* screen-size overrides: last, so they win over the base rules */
+@media (min-width: 901px) and (max-height: 820px) {
+  header { padding: 6px 20px 4px; }
+  header h1 { font-size: 19px; }
+  .controls { padding: 5px 20px; }
+  main { gap: 8px; padding: 6px 16px 8px; }
+  .left, .right { gap: 7px; }
+  .card { padding: 5px 8px; }
+  .card h2 { font-size: 12px; margin-bottom: 3px; }
+  .code { font-size: 13.5px; line-height: 1.3; padding: 2px 0; }
+  .vars .v { font-size: 14px; padding: 1px 4px; }
+  .caption { font-size: 16px; min-height: 2.9em; padding: 6px 12px; }
+  .caption .math { font-size: 14px; }
+  .bars svg { height: 112px; }
+  .card.grow svg { min-height: 80px; }
+  footer { padding: 3px 16px 4px; font-size: 11.5px; }
+  #chart { min-height: 200px; }
+}
+@media (min-width: 1800px) and (min-height: 1000px) {
+  body { font-size: 18px; }
+  header h1 { font-size: 26px; }
+  select, button { font-size: 17px; }
+  .card h2 { font-size: 15px; }
+  .code { font-size: 19px; }
+  .vars .v { font-size: 19px; }
+  .caption { font-size: 21px; }
+  .caption .math { font-size: 18px; }
+  .bars svg { height: 200px; }
+}
+</style>
+<style>
+.card, .card.grow, .code, .vars { min-width: 0; }
+.vars .v .val { overflow-x: auto; white-space: nowrap; margin-left: 8px; }
+.vars .v.wide { grid-column: 1 / -1; }
+.bars { grid-template-columns: 1fr 1fr; }
+#scene { min-height: 300px; }
+.code { font-size: 14px; }
+@media (max-width: 900px) { #scene { min-height: 520px; } .bars { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Self-attention on a sentence</h1>
+  <p>Self-attention &middot; every token is a query, a key and a value; the causal mask; rotary positions (RoPE)</p>
+</header>
+
+<div class="controls" role="toolbar" aria-label="Demo controls">
+  <div class="group">
+    <button id="bLine" class="primary">Next line<kbd>&rarr;</kbd></button>
+    <button id="bAll">Run all<kbd>F</kbd></button>
+    <button id="bReset">Reset<kbd>R</kbd></button>
+  </div>
+  <span class="sep" aria-hidden="true"></span>
+  <div class="group">
+    <label for="head">Head</label>
+    <select id="head"><option value="0" selected>1</option><option value="1">2</option></select>
+    <label for="mask">Mask</label>
+    <select id="mask"><option value="1" selected>causal</option><option value="0">none</option></select>
+    <label for="pos">Positions</label>
+    <select id="pos"><option value="0" selected>none</option><option value="1">RoPE</option></select>
+    <label for="off">Shift all positions by</label>
+    <select id="off"><option value="0" selected>0</option><option value="10">10</option><option value="100">100</option></select>
+  </div>
+</div>
+
+<main>
+  <section class="left">
+    <div class="card grow">
+      <svg id="scene" role="img" aria-label="The attention weights of every query over every key, and the rotation of the first pair of numbers of a query and a key"></svg>
+    </div>
+    <div class="caption" id="caption" aria-live="polite"></div>
+    <div class="bars">
+      <div class="card"><h2 id="sTitle">Scores of the selected query</h2><svg id="barS"></svg></div>
+      <div class="card"><h2>Outputs y of the two “the”</h2><svg id="barY"></svg></div>
+    </div>
+  </section>
+
+  <section class="right">
+    <div class="card grow">
+      <h2>self_attention.py</h2>
+      <div class="code" id="code"></div>
+    </div>
+    <div class="card">
+      <h2>Variables</h2>
+      <div class="vars" id="vars"></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  &copy; 2026 Kuk Jin Jang, Hongik University &middot;
+  <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>; commercial or
+  closed-source use by permission (<a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>) &middot;
+  the stepper follows the Week 4 demos, whose loop comes from
+  &ldquo;Machine Learning From Scratch, Part 1&rdquo; by
+  <a href="https://www.tiktok.com/@machinelearningtogo">@machinelearningtogo</a> on TikTok &middot;
+  self-attention and multi-head attention follow d2l.ai 11.5&ndash;11.6; RoPE follows Su et al., &ldquo;RoFormer&rdquo; (2021)
+</footer>
+
+<script>
+"use strict";
+const EX = {"tokens": ["the", "cat", "sat", "on", "the", "mat"], "words": ["cat", "mat", "on", "sat", "the"], "E": [[0.0, 0.3, -0.3, -0.9], [-0.5, -1.0, 0.1, 1.3], [-0.5, -0.6, 0.5, 0.4], [0.1, -0.9, -0.0, 0.7], [-1.3, -0.5, -1.9, -1.3]], "Wq": [[[-1.5, -0.2, -1.0, 0.2], [0.1, -0.1, -2.0, -0.4], [-0.0, 0.1, -1.2, -0.4], [-0.8, -0.6, 0.8, -0.6]], [[-1.1, -0.6, 0.5, -1.6], [-0.4, -0.1, 1.0, 0.6], [-0.3, -0.3, -0.2, 1.2], [-0.3, -0.2, 0.3, -0.1]]], "Wk": [[[-0.0, 0.7, -0.5, -0.1], [0.1, 0.1, -1.0, 0.1], [1.1, -1.2, 0.7, 0.1], [-0.5, 1.6, 0.6, -1.0]], [[-0.2, -0.9, -0.0, -0.4], [0.9, 0.5, -0.0, 0.5], [-0.3, 0.8, -0.0, 0.5], [-1.0, 0.3, -1.4, -1.6]]], "Wv": [[[0.1, 0.5, -0.2, 0.5], [-0.1, 0.5, 1.2, -0.5], [0.2, -0.4, 0.1, -0.9], [-0.5, -0.2, 0.7, 0.9]], [[-0.2, -0.7, 0.1, 1.8], [-0.7, -0.5, 0.2, 0.4], [-0.1, -0.2, 0.6, 0.4], [-0.8, -0.1, 0.0, -0.8]]]};   // embeddings and two heads of W_q, W_k, W_v (d = 4), as in the slides
+const T = EX.tokens, n = T.length, d = 4;
+const X = T.map((t) => EX.E[EX.words.indexOf(t)]);
+const mm = (A, B) => A.map((r) => B[0].map((_, j) => r.reduce((s, x, k) => s + x * B[k][j], 0)));
+function rope(M, pos) {
+  return M.map((r, i) => { const o = r.slice();
+    for (let j = 0; j < d / 2; j++) { const th = Math.pow(10000, -2 * j / d), a = pos[i] * th, c = Math.cos(a), s = Math.sin(a);
+      o[2 * j] = c * r[2 * j] - s * r[2 * j + 1]; o[2 * j + 1] = s * r[2 * j] + c * r[2 * j + 1]; }
+    return o; });
+}
+const opt = () => ({ h: +document.getElementById("head").value, mask: document.getElementById("mask").value === "1",
+  rope: document.getElementById("pos").value === "1", off: +document.getElementById("off").value });
+let line, row, R;
+function compute() {
+  const o = opt(), pos = T.map((_, i) => i + o.off);
+  let Q = mm(X, EX.Wq[o.h]), K = mm(X, EX.Wk[o.h]); const V = mm(X, EX.Wv[o.h]);
+  const Q0 = Q, K0 = K;
+  if (o.rope) { Q = rope(Q, pos); K = rope(K, pos); }
+  const S = Q.map((q) => K.map((k) => q.reduce((s, x, j) => s + x * k[j], 0) / Math.sqrt(d)));
+  const Sm = S.map((r, i) => r.map((v, j) => (o.mask && j > i ? -Infinity : v)));
+  const A = Sm.map((r) => { const m = Math.max(...r), e = r.map((v) => Math.exp(v - m)), Z = e.reduce((p, x) => p + x, 0); return e.map((x) => x / Z); });
+  const Y = mm(A, V);
+  R = { o, pos, Q, K, V, Q0, K0, S, Sm, A, Y };
+}
+function reset() { line = -1; row = 0; compute(); }
+function nextLine() {
+  if (line === -1) line = 0;
+  else if (line === 0) line = R.o.rope ? 1 : 2;
+  else if (line === 1) line = 2;
+  else if (line === 2) line = R.o.mask ? 3 : 4;
+  else if (line === 3) { line = 4; row = 0; }
+  else if (line === 4 && row < n - 1) row++;
+  else if (line === 4) line = 5;
+}
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const a in attrs) e.setAttribute(a, attrs[a]);
+  if (text !== undefined) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function drawScene() {
+  const svg = document.getElementById("scene"); svg.innerHTML = "";
+  const W = svg.clientWidth || 640, H = svg.clientHeight || 340; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const narrow = W < 560, cs = Math.min(46, (narrow ? W - 80 : W * 0.6 - 80) / n, (H - 70) / n), x0 = 60, y0 = 40;
+  const showS = line >= 2, showA = line >= 4;
+  el("text", { x: 8, y: 16, "font-size": 12, fill: css("--muted") }, svg, showA ? "attention weights: row = query, column = key" : showS ? "scores q · k / √d" : "press → to compute");
+  for (let i = 0; i < n; i++) {
+    el("text", { x: x0 - 6, y: y0 + i * cs + cs / 2 + 4, "text-anchor": "end", "font-size": 13, fill: i === row && line >= 4 ? css("--err") : css("--ink") }, svg, T[i]);
+    el("text", { x: x0 + i * cs + cs / 2, y: y0 - 6, "text-anchor": "middle", "font-size": 13, fill: css("--ink") }, svg, T[i]);
+    for (let j = 0; j < n; j++) {
+      const masked = R.o.mask && j > i && line >= 3;
+      let fill = css("--panel"), txt = "";
+      if (masked) { txt = "−∞"; }
+      else if (showA && (line > 4 || i <= row)) { const a = R.A[i][j]; fill = `rgba(192,0,0,${(0.08 + 0.92 * a).toFixed(2)})`; txt = a.toFixed(2); }
+      else if (showS) { const s = R.S[i][j]; fill = s >= 0 ? `rgba(192,0,0,${Math.min(1, s / 3).toFixed(2)})` : `rgba(47,111,191,${Math.min(1, -s / 3).toFixed(2)})`; txt = s.toFixed(1); }
+      el("rect", { x: x0 + j * cs, y: y0 + i * cs, width: cs - 2, height: cs - 2, fill, stroke: i === row && line >= 4 ? css("--exact") : "none" }, svg);
+      el("text", { x: x0 + j * cs + cs / 2 - 1, y: y0 + i * cs + cs / 2 + 4, "text-anchor": "middle", "font-size": 11, fill: css("--ink") }, svg, txt);
+    }
+  }
+  // the rotation dial: the first pair of q_row and of k_best
+  const best = R.A[row].indexOf(Math.max(...R.A[row]));
+  const cx = narrow ? W / 2 : x0 + n * cs + (W - x0 - n * cs) / 2, cy = narrow ? y0 + n * cs + 90 : H / 2, r = Math.min(80, (W - x0 - n * cs) / 2 - 30, narrow ? 70 : 200);
+  el("circle", { cx, cy, r, fill: "none", stroke: css("--rule") }, svg);
+  const draw = (v, col, lab) => { const L = Math.hypot(v[0], v[1]) || 1, ex = cx + r * v[0] / L, ey = cy - r * v[1] / L;
+    el("line", { x1: cx, y1: cy, x2: ex, y2: ey, stroke: col, "stroke-width": 3 }, svg);
+    el("text", { x: cx + (r + 16) * v[0] / L, y: cy - (r + 16) * v[1] / L + 4, "text-anchor": "middle", "font-size": 12, fill: col }, svg, lab); };
+  const qv = (R.o.rope && line >= 1 ? R.Q : R.Q0)[row], kv = (R.o.rope && line >= 1 ? R.K : R.K0)[best];
+  draw([qv[0], qv[1]], css("--err"), `q “${T[row]}” (${R.pos[row]})`); draw([kv[0], kv[1]], css("--line"), `k “${T[best]}” (${R.pos[best]})`);
+  el("text", { x: cx, y: cy + r + 34, "text-anchor": "middle", "font-size": 11.5, fill: css("--muted") }, svg,
+     R.o.rope ? "first pair of q and k, each turned by position × 1 rad" : "first pair of q and k (no positions)");
+}
+function drawBars() {
+  const svg = document.getElementById("barS"); svg.innerHTML = "";
+  const W = svg.clientWidth || 300, H = svg.clientHeight || 150; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  document.getElementById("sTitle").textContent = `Scores of the query “${T[row]}” (position ${row})`;
+  if (line < 2) { el("text", { x: 6, y: 20, "font-size": 13, fill: css("--muted") }, svg, "after line 3"); }
+  else { const s = R.Sm[row], bw = (W - 10) / n, mx = Math.max(1, ...R.S[row].map(Math.abs));
+    s.forEach((v, j) => { const masked = !isFinite(v), h = masked ? 0 : Math.abs(v) / mx * (H / 2 - 20);
+      el("rect", { x: 5 + j * bw + 4, y: v >= 0 ? H / 2 - h : H / 2, width: bw - 8, height: Math.max(1, h), fill: masked ? css("--rule") : css("--line") }, svg);
+      el("text", { x: 5 + j * bw + bw / 2, y: H - 4, "text-anchor": "middle", "font-size": 11.5, fill: css("--muted") }, svg, T[j]);
+      el("text", { x: 5 + j * bw + bw / 2, y: 13, "text-anchor": "middle", "font-size": 11, fill: css("--ink") }, svg, masked ? "−∞" : v.toFixed(2)); }); }
+  const sy = document.getElementById("barY"); sy.innerHTML = "";
+  const W2 = sy.clientWidth || 300, H2 = sy.clientHeight || 150; sy.setAttribute("viewBox", `0 0 ${W2} ${H2}`);
+  if (line < 5) { el("text", { x: 6, y: 20, "font-size": 13, fill: css("--muted") }, sy, "after line 6"); return; }
+  const a = R.Y[0], b = R.Y[4], mx = Math.max(...a.map(Math.abs), ...b.map(Math.abs), 1e-9), gw = (W2 - 20) / d;
+  for (let j = 0; j < d; j++) for (const [v, k, col] of [[a[j], 0, css("--err")], [b[j], 1, css("--line")]]) {
+    const h = Math.abs(v) / mx * (H2 / 2 - 22), x = 10 + j * gw + 6 + k * (gw - 12) / 2;
+    el("rect", { x, y: v >= 0 ? H2 / 2 - h : H2 / 2, width: (gw - 12) / 2 - 2, height: Math.max(1, h), fill: col }, sy);
+  }
+  const same = a.every((v, j) => Math.abs(v - b[j]) < 1e-9);
+  el("text", { x: 8, y: 14, "font-size": 12, fill: css("--ink") }, sy, same ? "identical: attention cannot tell them apart" : "different");
+  el("text", { x: 8, y: H2 - 4, "font-size": 11.5, fill: css("--muted") }, sy, "red: “the” at 0   blue: “the” at 4");
+}
+const CODE = [
+  ["Q, K, V = X @ W_q, X @ W_k, X @ W_v", "# every token: a query, a key, a value"],
+  ["Q, K = rope(Q, pos), rope(K, pos)", "# turn pair j by pos * theta_j"],
+  ["S = Q @ K.T / sqrt(d)", "# n x n scores"],
+  ["S[j > i] = -inf", "# causal mask: no looking ahead"],
+  ["A = softmax(S, dim=-1)", "# one row of weights per query"],
+  ["Y = A @ V", "# each output: a weighted sum of values"],
+];
+function renderCode() {
+  const box = document.getElementById("code"); box.innerHTML = "";
+  CODE.forEach(([code, com], q) => {
+    const off = (q === 1 && !R.o.rope) || (q === 3 && !R.o.mask);
+    const dv = document.createElement("div"); dv.className = "ln" + (q === line ? " on" : ""); if (off) dv.style.opacity = 0.4;
+    const no = document.createElement("span"); no.className = "no"; no.textContent = q + 1;
+    const tx = document.createElement("span"); tx.textContent = code;
+    const c = document.createElement("span"); c.className = "c"; c.textContent = "  " + com + (off ? " (off)" : ""); tx.appendChild(c);
+    dv.append(no, tx); box.appendChild(dv);
+  });
+}
+function caption() {
+  const c = document.getElementById("caption"), o = R.o;
+  const m = {
+    [-1]: "Six tokens, each a vector of 4 numbers. Press → to compute self-attention line by line. Try the mask, RoPE, and shifting every position.",
+    0: "Three learned matrices turn every token's vector into a query, a key and a value (d2l 11.6.1).",
+    1: `RoPE turns the first pair of every query and key by its position × 1 radian, the second pair by position × 0.01.`,
+    2: "Every query is compared with every key: an n × n matrix of scores, divided by √d = 2.",
+    3: "The causal mask removes the scores of later tokens, so a token attends only to itself and the tokens before it.",
+    4: `Row “${T[row]}”: the softmax gives its weights over the keys; the largest is ${Math.max(...R.A[row]).toFixed(2)} on “${T[R.A[row].indexOf(Math.max(...R.A[row]))]}”.`,
+    5: (() => { const same = R.Y[0].every((v, j) => Math.abs(v - R.Y[4][j]) < 1e-9);
+      return same ? "The two “the” get identical outputs: without the mask and without positions, attention does not see the order of the tokens." :
+        o.rope ? (o.off ? `With RoPE the scores depend only on the distance between tokens: shifting every position by ${o.off} leaves them unchanged.` : "With RoPE the scores depend only on the distance between tokens. Shift every position by 10 or 100: the weights do not change.") :
+        "The two “the” differ only because the mask lets them see different earlier tokens. Switch the mask off to see them become identical."; })(),
+  }[line];
+  c.textContent = m || "";
+}
+function renderVars() {
+  const box = document.getElementById("vars"); box.innerHTML = "";
+  const add = (kk, v, wide) => { const dv = document.createElement("div"); dv.className = "v" + (wide ? " wide" : "");
+    dv.innerHTML = `<span class="k">${kk}</span><span class="val">${v}</span>`; box.appendChild(dv); };
+  add("n, d", `${n}, ${d}`); add("head", R.o.h + 1);
+  add("query row", line >= 4 ? `${row} “${T[row]}”` : "–"); add("positions", R.o.rope ? `${R.pos[0]}…${R.pos[n - 1]}` : "none");
+  add("x of “the”", `[${X[0].join(", ")}]`, true);
+  add("weights per head", "W_q, W_k, W_v: 3 × 4 × 4 = 48", true);
+}
+function render() { compute(); drawScene(); drawBars(); renderCode(); caption(); renderVars(); }
+document.getElementById("bLine").onclick = () => { nextLine(); render(); };
+document.getElementById("bAll").onclick = () => { line = 5; row = n - 1; render(); };
+document.getElementById("bReset").onclick = () => { reset(); render(); };
+for (const id of ["head", "mask", "pos", "off"]) document.getElementById(id).onchange = render;
+document.addEventListener("keydown", (x) => {
+  if (x.target.tagName === "SELECT" || x.target.tagName === "INPUT") return;
+  const k = x.key.toLowerCase();
+  if (k === "arrowright") { x.preventDefault(); document.getElementById("bLine").click(); }
+  else if (k === "f") document.getElementById("bAll").click();
+  else if (k === "r") document.getElementById("bReset").click();
+});
+window.addEventListener("resize", render);
+reset(); render();
+</script>
+</body>
+</html>

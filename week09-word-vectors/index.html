@@ -314,7 +314,7 @@ const SETS = {
   royal: ["king", "queen", "man", "woman", "prince", "princess", "boy", "girl", "father", "mother", "son", "daughter", "uncle", "aunt"],
   animals: ["cat", "dog", "horse", "cow", "pig", "bird", "fish", "car", "truck", "bus", "train", "plane", "boat", "bike"],
   nums: ["one", "two", "three", "four", "five", "six", "red", "blue", "green", "yellow", "black", "white", "brown", "pink"],
-  verbs: ["walk", "walked", "run", "ran", "swim", "swam", "eat", "ate", "drink", "drank", "write", "wrote", "speak", "spoke"],
+  verbs: ["walk", "walked", "run", "ran", "write", "wrote", "speak", "spoke", "give", "gave", "sing", "sang", "see", "saw"],
 };
 const CODE = [
   ["E = load_glove(50)", "# one row of 50 numbers per word"],
@@ -393,7 +393,8 @@ const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v
 function drawMap() {
   const svg = document.getElementById("scene"); svg.innerHTML = "";
   const W = svg.clientWidth || 640, H = svg.clientHeight || 340; svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-  const set = document.getElementById("set").value, words = SETS[set].filter((w) => w in IDX), P = pca2(words);
+  // keep a pair only if both its words are in the vocabulary, so that every line joins a pair
+  const set = document.getElementById("set").value, words = SETS[set].filter((w, i, a) => a[i - i % 2] in IDX && a[i - i % 2 + 1] in IDX), P = pca2(words);
   const xs = P.map((p) => p[0]), ys = P.map((p) => p[1]);
   const pad = 40, x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
   const X = (v) => pad + ((v - x0) / (x1 - x0 || 1)) * (W - 2 * pad - 50), Y = (v) => H - pad - ((v - y0) / (y1 - y0 || 1)) * (H - 2 * pad);
@@ -483,14 +484,14 @@ const GUIDE = [
     say: "\u201ctokyo\u201d (0.93): the step from a country to its capital is roughly the same vector for each country." },
   { t: "An analogy: paris \u2212 france + italy", ana: ["paris", "france", "italy"], on: "anaCard",
     say: "\u201crome\u201d (0.84), the same relation for another pair." },
-  { t: "An analogy that fails", ana: ["walked", "walk", "swim"], on: "anaCard",
-    say: "walked \u2212 walk + swim should give \u201cswam\u201d, but the nearest word is \u201craced\u201d. Analogies work for some relations and not for others." },
+  { t: "An analogy that fails", ana: ["walked", "walk", "see"], on: "anaCard",
+    say: "walked \u2212 walk + see should give \u201csaw\u201d, but the nearest words are \u201cbut\u201d, \u201cdid\u201d and \u201cwhen\u201d. Analogies work for some words and not for others." },
   { t: "A map of countries and capitals", map: "caps", on: "mapCard",
     say: "Fifty numbers cannot be drawn, so we draw the two directions in which these 16 words spread the most (PCA). Countries are blue and capitals red; the lines that join each pair point roughly the same way." },
   { t: "A map of royalty and family", map: "royal", on: "mapCard",
     say: "Male words are blue and female words red. The lines from each male word to its female word are roughly parallel." },
   { t: "A map of verbs and their past tense", map: "verbs", on: "mapCard",
-    say: "Present forms are blue and past forms red. The lines are less regular than for the countries, as the failed analogy suggested." },
+    say: "Present forms are blue and past forms red. The lines are less regular than for the countries; see and saw, the pair of the failed analogy, are among them." },
   { t: "Try your own words", on: null,
     say: "Type a word and press Enter, change the three words of the analogy and press Analogy, or choose another map. A word must be among the 9,442 most frequent words." },
 ];

@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Full Batch, Minibatch and One Example</title>
+<meta name="description" content="PyTorch demo on minibatch stochastic gradient descent, one slide per step: the gradient as an average, the spread of minibatch gradients, the cost of one update, and the learning curves of the full batch, a minibatch and one example compared by updates, by examples and by time; the last step trains the three runs live.">
+<!--
+  (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
+  licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
+  Commercial use, closed-source use, or any other licensing: by permission,
+  jangkj@hongik.ac.kr.
+
+  Week 9, Hour 2 demo (Wed 28 Oct): minibatch stochastic gradient descent (d2l.ai 12.4-12.5), with
+  the model and data of the PyTorch demonstration (week09_mlp_lm_demo.html). Every step is one
+  slide of the deck week09-minibatch-demo (lectures/current/slides): the slide fills the window,
+  and the panel on its right is drawn here, live, from the same data. Each panel shows one cell of
+  week09_minibatch_lesson.py and what PyTorch printed when it ran (recorded with
+  `python week09_minibatch_lesson.py --json week09_minibatch_demo_files/lesson.js`), and a picture.
+  The last step trains the three runs (full batch, a minibatch, one example) in the page itself,
+  from the parameters PyTorch initialized. Its time axis uses the times of one update that the
+  lesson script measured in PyTorch (b = 1, 8, 64, 256 and all 1,378 examples, straight lines in
+  between), since JavaScript computes the examples of a batch one after another.
+
+  Files: week09_minibatch_demo_files/lesson.js (the cells and their outputs),
+         week09_minibatch_demo_files/slides.js and slide-NN.png (the slides and where their panel
+         is; written by lectures/current/tools/demo_slides.py wk09mb).
+  Keys: Right / Left arrow, Page Down / Page Up, Space = next / previous step;
+        Home / End = first / last step; F = full screen. The address #step=N opens step N.
+        In the last step: T = train / pause, R = reset, X = next x-axis.
+  ?panel#step=N shows only the panel of step N, at its design size (for the slides' pictures).
+-->
+<style>
+:root {
+  --ground: #2b2f36;
+  --paper: #ffffff;
+  --ink: #1a1a1a;
+  --muted: #5d636c;
+  --rule: #d5d9df;
+  --grid: #eceef1;
+  --code-bg: #f6f7f9;
+  --out-bg: #ffffff;
+  --line: #2f6fbf;
+  --err: #c0262d;
+  --pos: #1e8e5a;
+  --hl: #fff1c2;
+  --kw: #7a3eb1;
+  --str: #1d7a46;
+  --num: #a35a00;
+  --com: #8a8f98;
+  --accent: #a3192f;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--ground); color: var(--ink); overflow: hidden;
+  font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+}
+/* the stage: a 16:9 slide, as large as the window allows */
+#stage {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  background: var(--paper) center / 100% 100% no-repeat; box-shadow: 0 0 30px rgba(0, 0, 0, 0.35);
+}
+#slot { position: absolute; overflow: hidden; background: var(--paper); }
+#panel {
+  position: absolute; left: 0; top: 0; width: 1100px; height: 760px; transform-origin: 0 0;
+  display: flex; flex-direction: column; gap: 12px; background: var(--paper);
+}
+body.panelonly { background: var(--paper); overflow: hidden; }
+body.panelonly #stage { position: static; transform: none; box-shadow: none; width: 1100px !important; height: 760px !important; background: none; }
+body.panelonly #slot { left: 0 !important; top: 0 !important; width: 1100px !important; height: 760px !important; }
+body.panelonly #panel { transform: none !important; }
+body.panelonly #nav, body.panelonly #fallback { display: none; }
+/* without the slide pictures: the step's title above the panel */
+#copy { position: absolute; left: 3.2%; bottom: 1.6%; width: 52%; font-size: 0.72em; line-height: 1.3; color: var(--muted); }
+#copy a { color: inherit; }
+body.panelonly #copy { display: none; }
+#fallback { position: absolute; left: 4%; top: 3%; font-size: 3.2vh; font-weight: 650; color: var(--accent); display: none; }
+
+.cell { border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+.cell .lab { font: 600 15px/1 system-ui, sans-serif; color: var(--muted); padding: 7px 12px 6px; background: var(--grid);
+  display: flex; justify-content: space-between; letter-spacing: 0.02em; }
+.cell pre { margin: 0; padding: 8px 14px 10px; font: 22px/1.36 ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  white-space: pre-wrap; overflow-wrap: anywhere; overflow: hidden; }
+.code pre { background: var(--code-bg); }
+.out pre { background: var(--out-bg); color: #222; }
+.code pre .k { color: var(--kw); font-weight: 600; }
+.code pre .s { color: var(--str); }
+.code pre .n { color: var(--num); }
+.code pre .c { color: var(--com); }
+.row { display: flex; gap: 12px; min-height: 0; flex: 1; }
+.row > .out { flex: 1 1 50%; }
+.vis { flex: 1 1 50%; border: 1px solid var(--rule); border-radius: 10px; min-height: 0; position: relative; }
+.vis svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.full { flex: 1; }
+/* the live panel */
+.ctl { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 18px; }
+.ctl button, .ctl select { font: inherit; font-size: 18px; padding: 6px 14px; border-radius: 8px; border: 1px solid #b9bec6; background: #fff; color: var(--ink); cursor: pointer; }
+.ctl button.primary { background: var(--line); border-color: var(--line); color: #fff; }
+.ctl label { color: var(--muted); }
+.ctl kbd { font: 13px system-ui; border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; margin-left: 6px; color: var(--muted); }
+.ctl button.primary kbd { color: #fff; border-color: rgba(255, 255, 255, 0.6); }
+.stat { font: 19px ui-monospace, Menlo, Consolas, monospace; color: var(--ink); margin: 0; }
+.samples { font: 19px/1.5 ui-monospace, Menlo, Consolas, monospace; padding: 8px 14px; }
+button:focus-visible, select:focus-visible { outline: 3px solid var(--line); outline-offset: 2px; }
+
+/* navigation: shown while the mouse moves */
+#nav {
+  position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; gap: 8px; align-items: center;
+  background: rgba(20, 22, 26, 0.86); color: #fff; padding: 6px 10px; border-radius: 10px; font-size: 14px;
+  opacity: 0; transition: opacity 0.25s; z-index: 5;
+}
+#nav.show, #nav:hover, #nav:focus-within { opacity: 1; }
+#nav button { font: inherit; background: transparent; color: #fff; border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+#nav select { font: inherit; max-width: 360px; background: #1d2026; color: #fff; border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 6px; padding: 3px 6px; }
+@media (prefers-reduced-motion: reduce) { #nav { transition: none; } }
+</style>
+</head>
+<body>
+<div id="stage" role="region" aria-label="Slide">
+  <div id="fallback"></div>
+  <p id="copy">&copy; 2026 Kuk Jin Jang, Hongik University &middot;
+    <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>; commercial or closed-source use by
+    permission (<a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>) &middot; the model follows Bengio et al. (JMLR, 2003); minibatch stochastic gradient descent follows d2l.ai 12.4&ndash;12.5</p>
+  <div id="slot"><div id="panel" aria-live="polite"></div></div>
+</div>
+<nav id="nav" aria-label="Steps">
+  <button id="bBack" aria-label="Previous step">&larr;</button>
+  <select id="pick" aria-label="Go to step"></select>
+  <button id="bNext" aria-label="Next step">&rarr;</button>
+  <button id="bFull">Full screen</button>
+</nav>
+
+<script src="week09_minibatch_demo_files/lesson.js"></script>
+<script src="week09_minibatch_demo_files/slides.js"></script>
+<script>
+"use strict";
+const PANEL_W = 1100, PANEL_H = 760;
+const SL = typeof SLIDES === "undefined" ? null : SLIDES;   // missing until demo_slides.py has run
+const PANEL_ONLY = /[?&]panel\b/.test(location.search);
+if (PANEL_ONLY) document.body.classList.add("panelonly");
+const STEPS = LESSON.steps.concat([{ title: "The three runs, trained live", live: true }]);
+const N = STEPS.length;
+const NS = "http://www.w3.org/2000/svg";
+const MONO = "ui-monospace, Menlo, Consolas, 'DejaVu Sans Mono', monospace";
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const a in attrs) e.setAttribute(a, attrs[a]);
+  if (text !== undefined) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function h(tag, cls, parent, text) {
+  const e = document.createElement(tag); if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text; if (parent) parent.appendChild(e); return e;
+}
+const CH = LESSON.chars, V = CH.length, IDX = Object.fromEntries(CH.map((c, i) => [c, i]));
+const VOWELS = new Set("aeiou");
+
+// ---- Python highlighting (keywords, strings, numbers, comments) -----------------
+const KW = new Set("import as from def class return for in while if else elif with not and or break True False None lambda".split(" "));
+function highlight(pre, code) {
+  const re = /(#.*$)|("[^"]*"|'[^']*')|(\b\d+(?:\.\d+)?(?:e-?\d+)?\b)|([A-Za-z_]\w*)|([\s\S])/gm;
+  let m;
+  while ((m = re.exec(code))) {
+    if (m[1]) h("span", "c", pre, m[1]);
+    else if (m[2]) h("span", "s", pre, m[2]);
+    else if (m[3]) h("span", "n", pre, m[3]);
+    else if (m[4] && KW.has(m[4])) h("span", "k", pre, m[4]);
+    else pre.appendChild(document.createTextNode(m[0]));
+  }
+}
+function cellBox(kind, label, text, right) {
+  const box = h("div", "cell " + kind);
+  const lab = h("div", "lab", box); h("span", "", lab, label); if (right) h("span", "", lab, right);
+  const pre = h("pre", "", box);
+  if (kind === "code") highlight(pre, text); else pre.textContent = text;
+  return box;
+}
+
+// ---- pictures ------------------------------------------------------------------------
+function svgIn(box) { const s = el("svg", {}, box); const W = box.clientWidth, H = box.clientHeight; s.setAttribute("viewBox", `0 0 ${W} ${H}`); return [s, W, H]; }
+function drawHist(box, vis) {
+  const [s, W, H] = svgIn(box), v = vis.vals;
+  el("text", { x: 14, y: 26, "font-size": 17, fill: css("--muted") }, s, vis.title);
+  let lo = Math.min(...v), hi = Math.max(...v); const pad = (hi - lo) * 0.05; lo -= pad; hi += pad;
+  const nb = 40, cnt = new Array(nb).fill(0); for (const x of v) cnt[Math.min(nb - 1, Math.floor((x - lo) / (hi - lo) * nb))]++;
+  const px = 50, py = 74, pw = W - px - 20, ph = H - py - 60, mx = Math.max(...cnt);
+  const X = (x) => px + (x - lo) / (hi - lo) * pw, Yc = (c) => py + ph - Math.sqrt(c / mx) * ph;
+  for (let i = 0; i < nb; i++) if (cnt[i]) el("rect", { x: px + i * pw / nb + 1, y: Yc(cnt[i]), width: pw / nb - 2, height: py + ph - Yc(cnt[i]), fill: css("--line") }, s);
+  el("line", { x1: px, x2: px + pw, y1: py + ph, y2: py + ph, stroke: css("--rule") }, s);
+  for (const t of [-1, -0.5, 0]) if (t >= lo && t <= hi) el("text", { x: X(t), y: py + ph + 22, "text-anchor": "middle", "font-size": 15, fill: css("--muted") }, s, t.toFixed(1));
+  el("line", { x1: X(vis.mean), x2: X(vis.mean), y1: py - 10, y2: py + ph, stroke: css("--err"), "stroke-width": 3 }, s);
+  el("text", { x: X(vis.mean) - 8, y: py - 16, "text-anchor": "end", "font-size": 17, "font-weight": 600, fill: css("--err") }, s, `mean = full gradient ${vis.mean.toFixed(4)}`);
+  el("text", { x: px + pw, y: py + ph + 44, "text-anchor": "end", "font-size": 15, fill: css("--muted") }, s, `${v.length} examples (bar height: square root of the count)`);
+}
+function drawCloud(box, vis) {
+  const [s, W, H] = svgIn(box), cols = { 1: "err", 8: "num", 64: "line" };
+  el("text", { x: 14, y: 26, "font-size": 17, fill: css("--muted") }, s, "minibatch gradients: two of the 2,257 numbers");
+  // the scale: 2.5 standard deviations of the b = 8 estimates; points beyond the frame are left out
+  const sd = (k) => { const v = vis.pts["8"].map((q) => q[k] - vis.full[k]); return Math.sqrt(v.reduce((a, x) => a + x * x, 0) / v.length); };
+  const ra = 2.5 * sd(0), rb = 2.5 * sd(1), sz = Math.min(W - 150, H - 100), x0 = 14, y0 = 44;
+  const X = (a) => x0 + sz / 2 + (a - vis.full[0]) / ra * sz / 2, Y = (b) => y0 + sz / 2 - (b - vis.full[1]) / rb * sz / 2;
+  const inside = (a, b) => Math.abs(a - vis.full[0]) <= ra && Math.abs(b - vis.full[1]) <= rb;
+  el("rect", { x: x0, y: y0, width: sz, height: sz, fill: "none", stroke: css("--rule") }, s);
+  for (const b of ["1", "8", "64"]) for (const [a, c] of vis.pts[b]) if (inside(a, c))
+    el("circle", { cx: X(a), cy: Y(c), r: b === "64" ? 3.5 : 3, fill: css("--" + cols[b]), "fill-opacity": 0.55 }, s);
+  el("circle", { cx: X(vis.full[0]), cy: Y(vis.full[1]), r: 7, fill: "none", stroke: css("--ink"), "stroke-width": 3 }, s);
+  ["1", "8", "64"].forEach((b, i) => el("text", { x: x0 + sz + 14, y: y0 + 26 + i * 24, "font-size": 17, "font-weight": 600, fill: css("--" + cols[b]) }, s, `b = ${b}`));
+  el("text", { x: x0 + sz + 14, y: y0 + 26 + 3 * 24, "font-size": 17, "font-weight": 600, fill: css("--ink") }, s, "○ full");
+  el("text", { x: x0, y: y0 + sz + 24, "font-size": 15, fill: css("--muted") }, s, `${vis.xlabel} (across), ${vis.ylabel} (up)`);
+}
+function drawCosts(box, vis) {   // ms per update against b, on a log scale
+  const [s, W, H] = svgIn(box), rows = vis.rows;
+  el("text", { x: 14, y: 26, "font-size": 17, fill: css("--muted") }, s, "time of one update (ms)");
+  const px = 58, py = 50, pw = W - px - 30, ph = H - py - 70, bmax = rows[rows.length - 1][0], tmax = Math.max(...rows.map((q) => q[1])) * 1.15;
+  const X = (b) => px + Math.log(b) / Math.log(bmax) * pw, Y = (t) => py + ph - t / tmax * ph;
+  el("rect", { x: px, y: py, width: pw, height: ph, fill: "none", stroke: css("--rule") }, s);
+  for (let t = 0; t <= tmax; t += 0.2) { el("line", { x1: px, x2: px + pw, y1: Y(t), y2: Y(t), stroke: css("--grid") }, s);
+    el("text", { x: px - 7, y: Y(t) + 5, "text-anchor": "end", "font-size": 15, fill: css("--muted") }, s, t.toFixed(1)); }
+  el("path", { d: rows.map((q, j) => (j ? "L" : "M") + X(q[0]).toFixed(1) + " " + Y(q[1]).toFixed(1)).join(""), fill: "none", stroke: css("--line"), "stroke-width": 3 }, s);
+  for (const [b, t] of rows) { el("circle", { cx: X(b), cy: Y(t), r: 5, fill: css("--line") }, s);
+    el("text", { x: X(b), y: py + ph + 22, "text-anchor": "middle", "font-size": 15, fill: css("--muted") }, s, b); }
+  el("text", { x: px + pw, y: py + ph + 46, "text-anchor": "end", "font-size": 15, fill: css("--muted") }, s, "batch size b (log scale)");
+}
+function drawCurve(box, vis) {
+  const [s, W, H] = svgIn(box);
+  const px = 58, py = 40, pw = W - px - 20, ph = H - py - 62, lo = vis.lo || 1.5, hi = vis.hi || 4.0, T = vis.xmax, lg = !!vis.logx;
+  const LX = (x) => px + (lg ? Math.log10(Math.max(1, x)) / Math.log10(T) : x / T) * pw;
+  const LY = (l) => py + ph - (Math.min(hi, Math.max(lo, l)) - lo) / (hi - lo) * ph;
+  el("text", { x: 14, y: 26, "font-size": 17, fill: css("--muted") }, s, vis.ylabel || "loss");
+  for (let l = lo; l <= hi + 1e-9; l += 0.5) {
+    el("line", { x1: px, x2: px + pw, y1: LY(l), y2: LY(l), stroke: css("--grid") }, s);
+    el("text", { x: px - 7, y: LY(l) + 5, "text-anchor": "end", "font-size": 15, fill: css("--muted") }, s, l.toFixed(1));
+  }
+  el("rect", { x: px, y: py, width: pw, height: ph, fill: "none", stroke: css("--rule") }, s);
+  const ticks = lg ? [1, 10, 100, 1000, 10000, 100000].filter((t) => t <= T) : [0, 1, 2, 3, 4].map((i) => T * i / 4);
+  const fmt = (x) => Math.round(x).toLocaleString("en-US");
+  for (const t of ticks) el("text", { x: LX(t), y: py + ph + 20, "text-anchor": "middle", "font-size": 15, fill: css("--muted") }, s, fmt(t));
+  el("text", { x: px + pw, y: py + ph + 42, "text-anchor": "end", "font-size": 15, fill: css("--muted") }, s, vis.xlabel);
+  if (vis.ref) { el("line", { x1: px, x2: px + pw, y1: LY(vis.ref), y2: LY(vis.ref), stroke: css("--muted"), "stroke-dasharray": "5 4" }, s);
+    el("text", { x: px + pw - 6, y: LY(vis.ref) - 6, "text-anchor": "end", "font-size": 15, fill: css("--muted") }, s, "ln 27 = 3.30"); }
+  vis.series.forEach((se, i) => {
+    const pts = se.pts.filter((q) => isFinite(q[1]) && q[0] <= T * 1.0001 && (!lg || q[0] >= 1));
+    if (pts.length > 1) el("path", { d: pts.map((q, j) => (j ? "L" : "M") + LX(q[0]).toFixed(1) + " " + LY(q[1]).toFixed(1)).join(""),
+      fill: "none", stroke: css("--" + se.c), "stroke-width": 3 }, s);
+    if (pts.length) { const q = pts[pts.length - 1]; el("circle", { cx: LX(q[0]), cy: LY(q[1]), r: 5, fill: css("--" + se.c) }, s); }
+    el("text", { x: px + 12, y: py + ph - 14 - (vis.series.length - 1 - i) * 24, "font-size": 17, "font-weight": 600, fill: css("--" + se.c) }, s, se.name);
+  });
+}
+const DRAW = { hist: drawHist, cloud: drawCloud, costs: drawCosts, curve: drawCurve };
+
+// ---- one recorded step: the cell, its output, and a picture ------------------------
+function showCell(k) {
+  const st = STEPS[k], P = document.getElementById("panel"); P.innerHTML = "";
+  const codeLines = st.code.split("\n").length, outLines = st.out ? st.out.split("\n").length : 0;
+  P.appendChild(cellBox("code", `In [${k + 1}]`, st.code, "Python"));
+  if (st.vis) {
+    const row = h("div", "row", P);
+    if (st.out) row.appendChild(cellBox("out", "Out", st.out));
+    const v = h("div", "vis", row);
+    if (!st.out) v.style.flexBasis = "100%";
+    requestAnimationFrame(() => DRAW[st.vis.kind](v, st.vis));
+  } else if (st.out) {
+    const o = cellBox("out full", "Out", st.out); P.appendChild(o);
+  }
+  // long cells: set the code a little smaller so that everything fits
+  const big = codeLines + outLines > 20 || (st.vis && codeLines > 10);
+  P.querySelectorAll("pre").forEach((pre) => { if (big) pre.style.fontSize = "19px"; });
+}
+
+// ---- the live step: the three runs, trained in the page ------------------------------
+const BLOCK = 3, D = 2, HID = 64;
+function examples(words) {
+  const X = [], Y = [];
+  for (const w of words) { let c = [0, 0, 0]; for (const ch of w + ".") { X.push(c); Y.push(IDX[ch]); c = [c[1], c[2], IDX[ch]]; } }
+  return { X, Y };
+}
+const TR = examples(LESSON.train), NTR = TR.X.length;
+const INIT = STEPS.find((s) => s.init).init;
+// the time of one update in PyTorch (ms), measured by the lesson script for b = 1, 8, 64, 256 and all;
+// other b by straight lines between them
+const COSTS = Object.entries(STEPS.find((s) => s.costs).costs).map(([b, t]) => [+b, t]).sort((a, b) => a[0] - b[0]);
+function costMs(b) {
+  for (let i = 1; i < COSTS.length; i++) if (b <= COSTS[i][0]) { const [b0, t0] = COSTS[i - 1], [b1, t1] = COSTS[i]; return t0 + (t1 - t0) * (b - b0) / (b1 - b0); }
+  return COSTS[COSTS.length - 1][1];
+}
+function newParams() { return Object.fromEntries(Object.keys(INIT).map((k) => [k, Float64Array.from(INIT[k])])); }
+function forward(Q, ctx) {
+  const e = new Float64Array(BLOCK * D), hh = new Float64Array(HID), p = new Float64Array(V);
+  for (let j = 0; j < BLOCK; j++) for (let d = 0; d < D; d++) e[j * D + d] = Q.E[ctx[j] * D + d];
+  for (let u = 0; u < HID; u++) { let s = Q.b1[u]; for (let i = 0; i < BLOCK * D; i++) s += e[i] * Q.W1[i * HID + u]; hh[u] = Math.tanh(s); }
+  let mx = -Infinity;
+  for (let v = 0; v < V; v++) { let s = Q.b2[v]; for (let u = 0; u < HID; u++) s += hh[u] * Q.W2[u * V + v]; p[v] = s; if (s > mx) mx = s; }
+  let Z = 0; for (let v = 0; v < V; v++) { p[v] = Math.exp(p[v] - mx); Z += p[v]; }
+  for (let v = 0; v < V; v++) p[v] /= Z;
+  return { e, h: hh, p };
+}
+function lossOn(Q) { let s = 0; for (let i = 0; i < NTR; i++) s -= Math.log(Math.max(1e-300, forward(Q, TR.X[i]).p[TR.Y[i]])); return s / NTR; }
+function sgdStep(Q, idx, lr) {   // forward, mean cross-entropy, backpropagation, then w <- w - lr * grad
+  const G = Object.fromEntries(Object.keys(Q).map((k) => [k, new Float64Array(Q[k].length)]));
+  const B = idx.length;
+  for (const i of idx) {
+    const ctx = TR.X[i], y = TR.Y[i], { e, h: hh, p } = forward(Q, ctx);
+    const dz = Float64Array.from(p, (q, v) => (q - (v === y ? 1 : 0)) / B), dh = new Float64Array(HID);
+    for (let u = 0; u < HID; u++) { let s = 0; for (let v = 0; v < V; v++) { G.W2[u * V + v] += hh[u] * dz[v]; s += Q.W2[u * V + v] * dz[v]; } dh[u] = s * (1 - hh[u] * hh[u]); }
+    for (let v = 0; v < V; v++) G.b2[v] += dz[v];
+    for (let i2 = 0; i2 < BLOCK * D; i2++) { let s = 0; for (let u = 0; u < HID; u++) { G.W1[i2 * HID + u] += e[i2] * dh[u]; s += Q.W1[i2 * HID + u] * dh[u]; }
+      G.E[ctx[Math.floor(i2 / D)] * D + (i2 % D)] += s; }
+    for (let u = 0; u < HID; u++) G.b1[u] += dh[u];
+  }
+  for (const k in Q) { const w = Q[k], g = G[k]; for (let j = 0; j < w.length; j++) w[j] -= lr * g[j]; }
+}
+const AXES = [["updates", 0], ["examples used", 1], ["time (ms, as PyTorch takes on one CPU thread)", 2]];
+let L = null;   // the live state
+function newRun(name, b, lr, c) { const Q = newParams(); return { name, b, lr, c, Q, u: 0, ms: 0, log: [[0, 0, 0, lossOn(Q)]], nextEval: 0 }; }
+function liveReset() {
+  const mb = L ? L.mb : 64, lr1 = L ? L.lr1 : 0.01, axis = L ? L.axis : 2;
+  L = { mb, lr1, axis, running: false };
+  L.runs = [newRun("full batch", NTR, 0.3, "num"), newRun(`b = ${mb}`, mb, 0.3, "line"), newRun("b = 1", 1, lr1, "err")];
+}
+function liveTick(budget) {   // advance the run that is furthest behind in PyTorch time, for budget ms of page time
+  const t0 = performance.now();
+  while (performance.now() - t0 < budget) {
+    const r = L.runs.reduce((a, b) => (b.ms < a.ms ? b : a));
+    const idx = r.b >= NTR ? TR.X.map((_, i) => i) : Array.from({ length: r.b }, () => Math.floor(Math.random() * NTR));
+    sgdStep(r.Q, idx, r.lr); r.u++; r.ms += costMs(r.b);
+    if (r.ms >= r.nextEval) { r.log.push([r.u, r.u * r.b, r.ms, lossOn(r.Q)]); r.nextEval = r.ms * 1.08 + 2; }
+  }
+}
+function showLive() {
+  if (!L) liveReset();
+  const P = document.getElementById("panel"); P.innerHTML = "";
+  P.insertAdjacentHTML("beforeend", `<div class="ctl">
+    <button id="bTrain" class="primary">${L.running ? "Pause" : "Train"}<kbd>T</kbd></button>
+    <button id="bReset">Reset<kbd>R</kbd></button>
+    <label for="ax">x-axis</label><select id="ax">${AXES.map((a, i) => `<option value="${i}"${i === L.axis ? " selected" : ""}>${a[0].split(" (")[0]}</option>`).join("")}</select>
+    <label for="mb">minibatch</label><select id="mb">${[8, 64, 256].map((v) => `<option${v === L.mb ? " selected" : ""}>${v}</option>`).join("")}</select>
+    <label for="lr1">lr for b = 1</label><select id="lr1">${[0.01, 0.03, 0.3].map((v) => `<option${v === L.lr1 ? " selected" : ""}>${v}</option>`).join("")}</select></div>`);
+  const vis = h("div", "vis", P); vis.style.flex = "1";
+  const stat = h("pre", "stat", P);
+  const draw = () => {
+    const a = AXES[L.axis][1], xmax = Math.max(...L.runs.map((r) => r.log[r.log.length - 1][a]), a === 0 ? 10 : a === 1 ? 1000 : 5);
+    vis.innerHTML = "";
+    drawCurve(vis, { xmax: a === 2 ? Math.min(...L.runs.map((r) => r.ms)) || 5 : xmax, xlabel: AXES[L.axis][0], ylabel: "loss on all training examples", ref: Math.log(V),
+      series: L.runs.map((r) => ({ name: r.name, c: r.c, pts: r.log.map((q) => [q[a], q[3]]) })) });
+    stat.textContent = L.runs.map((r) => `${r.name.padEnd(11)}${String(r.u).padStart(7)} updates ${String(r.u * r.b).padStart(8)} examples ${r.ms.toFixed(0).padStart(6)} ms  loss ${r.log[r.log.length - 1][3].toFixed(3)}`).join("\n");
+  };
+  L.draw = draw;
+  requestAnimationFrame(draw);
+  document.getElementById("bTrain").onclick = toggleTrain;
+  document.getElementById("bReset").onclick = () => { liveReset(); showLive(); };
+  document.getElementById("ax").onchange = (e) => { L.axis = +e.target.value; draw(); };
+  document.getElementById("mb").onchange = (e) => { L.mb = +e.target.value; liveReset(); showLive(); };
+  document.getElementById("lr1").onchange = (e) => { L.lr1 = +e.target.value; liveReset(); showLive(); };
+}
+function toggleTrain() {
+  L.running = !L.running; document.getElementById("bTrain").firstChild.textContent = L.running ? "Pause" : "Train";
+  const tick = () => { if (!L.running || !STEPS[cur].live) return; liveTick(30); L.draw(); requestAnimationFrame(tick); };
+  if (L.running) requestAnimationFrame(tick);
+}
+
+// ---- the slides --------------------------------------------------------------------------
+let cur = 0;
+function layout() {
+  const st = document.getElementById("stage"), slot = document.getElementById("slot");
+  if (PANEL_ONLY) return;
+  const W = Math.min(innerWidth, innerHeight * 16 / 9), H = W * 9 / 16;
+  st.style.width = W + "px"; st.style.height = H + "px"; st.style.fontSize = (W / 1920 * 16) + "px";
+  const sl = SL && SL.pages[cur];
+  const box = sl ? sl.box : [0.46, 0.17, 0.5, 0.5 * 16 / 9 * PANEL_H / PANEL_W];   // fractions of the slide
+  slot.style.left = box[0] * W + "px"; slot.style.top = box[1] * H + "px";
+  slot.style.width = box[2] * W + "px"; slot.style.height = box[3] * H + "px";
+  document.getElementById("panel").style.transform = `scale(${box[2] * W / PANEL_W})`;
+  st.style.backgroundImage = sl ? `url("${SL.dir}${sl.img}")` : "none";
+  const fb = document.getElementById("fallback"); fb.style.display = sl ? "none" : "block"; fb.textContent = STEPS[cur].title;
+}
+function show(k) {
+  cur = Math.max(0, Math.min(N - 1, k));
+  if (L) L.running = false;
+  if (!location.hash.includes("step=" + (cur + 1) + "&")) history.replaceState(null, "", location.search + "#step=" + (cur + 1));
+  document.getElementById("pick").value = cur;
+  layout();
+  if (STEPS[cur].live) showLive(); else showCell(cur);
+}
+const pick = document.getElementById("pick");
+STEPS.forEach((s, i) => { const o = document.createElement("option"); o.value = i; o.textContent = `${i + 1}. ${s.title}`; pick.appendChild(o); });
+pick.onchange = () => show(+pick.value);
+document.getElementById("bBack").onclick = () => show(cur - 1);
+document.getElementById("bNext").onclick = () => show(cur + 1);
+document.getElementById("bFull").onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+addEventListener("keydown", (e) => {
+  if (e.target.tagName === "SELECT" && !["ArrowLeft", "ArrowRight"].includes(e.key)) return;
+  const k = e.key;
+  if (k === "ArrowRight" || k === "PageDown" || (k === " " && !STEPS[cur].live)) { show(cur + 1); e.preventDefault(); }
+  else if (k === "ArrowLeft" || k === "PageUp") { show(cur - 1); e.preventDefault(); }
+  else if (k === "Home") show(0);
+  else if (k === "End") show(N - 1);
+  else if (k === "f" || k === "F") document.getElementById("bFull").click();
+  else if (STEPS[cur].live) {
+    if (k === "t" || k === "T") toggleTrain();
+    else if (k === "r" || k === "R") document.getElementById("bReset").click();
+    else if (k === "x" || k === "X") { L.axis = (L.axis + 1) % AXES.length; document.getElementById("ax").value = L.axis; L.draw(); }
+  }
+});
+let navT;
+addEventListener("mousemove", (e) => { if (!e.movementX && !e.movementY) return; const n = document.getElementById("nav"); n.classList.add("show"); clearTimeout(navT); navT = setTimeout(() => n.classList.remove("show"), 1800); });
+addEventListener("resize", () => show(cur));
+addEventListener("hashchange", () => { const m = location.hash.match(/step=(\d+)/); if (m && +m[1] - 1 !== cur) show(+m[1] - 1); });
+const m0 = location.hash.match(/step=(\d+)/);
+show(m0 ? +m0[1] - 1 : 0);
+</script>
+</body>
+</html>

@@ -17,7 +17,8 @@ Published with GitHub Pages at <https://hongik-aicourses.github.io/ml-demos/>.
 | 6, Hour 3 | Training a deep network: the starting weights, the activation and the scale of the inputs | [week06-training/](https://hongik-aicourses.github.io/ml-demos/week06-training/) |
 | 9, Hour 1 | A bigram language model, line by line: counting letter pairs in 240 names, add-one smoothing, sampling and perplexity | [week09-bigram/](https://hongik-aicourses.github.io/ml-demos/week09-bigram/) |
 | 9, Hour 1 | Word vectors: nearest words, analogies and a two-dimensional map (GloVe 6B, 50 dimensions) | [week09-word-vectors/](https://hongik-aicourses.github.io/ml-demos/week09-word-vectors/) |
-| 9, Hour 2 | Training a character MLP language model: three letters of context, a two-number embedding per character, minibatch SGD line by line, a weight decay setting; the loss curves and sampled names | [week09-mlp-lm/](https://hongik-aicourses.github.io/ml-demos/week09-mlp-lm/) |
+| 9, Hour 2 | PyTorch, step by step: a character MLP language model built and trained one cell at a time (tensors, embedding, linear layers, cross-entropy, backward, the SGD step, sampling); one slide per step, and live training with a learning rate, batch size and weight decay setting | [week09-mlp-lm/](https://hongik-aicourses.github.io/ml-demos/week09-mlp-lm/) |
+| 9, Hour 2 | Full batch, minibatch and one example: the same language model trained three ways in PyTorch; the spread of minibatch gradients, and the learning curves by updates, by examples and by time | [week09-minibatch/](https://hongik-aicourses.github.io/ml-demos/week09-minibatch/) |
 | 10, Hour 1 | Byte pair encoding, merge by merge: d2l's four words or The Time Machine, the most frequent pair merged, the segmentation of a new word | [week10-bpe/](https://hongik-aicourses.github.io/ml-demos/week10-bpe/) |
 | 10, Hour 3 | A recurrent language model, step by step: the hidden state after each character, backpropagation through time, gradient clipping, sampled names | [week10-rnn/](https://hongik-aicourses.github.io/ml-demos/week10-rnn/) |
 | 10, make-up | How much to trust a test loss: test sets drawn from per-token losses, the standard error, the normal curve, how often 95% intervals contain the mean | [error-bars/](https://hongik-aicourses.github.io/ml-demos/error-bars/) |
@@ -27,7 +28,7 @@ Published with GitHub Pages at <https://hongik-aicourses.github.io/ml-demos/>.
 | 11, make-up | Fine-tuning a model to follow a prompt: prompt tokens as new rows, the loss masked on the prompt, sampled names before and after SFT | [instruction-tuning/](https://hongik-aicourses.github.io/ml-demos/instruction-tuning/) |
 | 13, Hour 1 | Optimizers in a canyon: gradient descent, momentum and Adam on d2l's ill-conditioned function | [week13-optimizers/](https://hongik-aicourses.github.io/ml-demos/week13-optimizers/) |
 | 13, Hour 2 | Sampling from a language model: the decode loop one character at a time, temperature, top-k, top-p, greedy decoding | [week13-sampling/](https://hongik-aicourses.github.io/ml-demos/week13-sampling/) |
-| 9, Hour 3 | Regularization: weight decay and L1 on a polynomial | [week06-regularization/](https://hongik-aicourses.github.io/ml-demos/week06-regularization/) |
+| 9, Hour 3 | Underfitting, overfitting and regularization: a polynomial briefly, then the language model in PyTorch (model size, early stopping, weight decay, choosing λ) | [week06-regularization/](https://hongik-aicourses.github.io/ml-demos/week06-regularization/) |
 | 10, Hour 2 | A convolution, line by line: a 3 &times; 3 filter over a picture, then a causal filter over a sentence | [convolution/](https://hongik-aicourses.github.io/ml-demos/convolution/) |
 | 10, Hour 2 | A small CNN learns its own filters: 8 filters on handwritten digits, next to softmax regression, with moved digits | [cnn-digits/](https://hongik-aicourses.github.io/ml-demos/cnn-digits/) |
 | later | Naive Bayes spam filter, clue by clue | [naive-bayes/](https://hongik-aicourses.github.io/ml-demos/naive-bayes/) |
@@ -52,8 +53,7 @@ rather than editing this repository directly.
   the two words of the email the video leaves uncounted ("claim", "prize") and the log-odds
   view.
 
-- **Bigram model:** the stepper follows the Week 4 demos (from *Machine Learning From Scratch, Part 1* by
-  [@machinelearningtogo](https://www.tiktok.com/@machinelearningtogo)); the model and Laplace smoothing follow d2l.ai 9.3.
+- **Bigram model:** the model and Laplace smoothing follow d2l.ai 9.3.
 - **Word vectors:** GloVe 6B, 50 dimensions (Pennington, Socher and Manning, 2014), released under the Open
   Data Commons Public Domain Dedication and License; the 10,000 most frequent words, alphabetic ones only,
   stored to 8 bits. Similarity and analogies follow d2l.ai 15.7.

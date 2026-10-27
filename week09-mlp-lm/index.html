@@ -3,417 +3,146 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Training a Character MLP Language Model</title>
-<meta name="description" content="PyTorch demo: a character MLP language model (three letters of context, a two-number embedding per character, 64 tanh units) trained by minibatch SGD on 240 names, line by line or continuously; the embedding table, the training and validation loss, the next-letter probabilities and sampled names.">
+<title>Training an MLP Language Model in PyTorch</title>
+<meta name="description" content="PyTorch, cell by cell: tensors, nn.Embedding, nn.Linear, a module, cross-entropy, backward(), zero_grad() and the SGD step, by training a character MLP language model on 240 names; each step is a slide with the cell and what PyTorch printed, and the last step trains the model live.">
 <!--
   (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
   licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
   Commercial use, closed-source use, or any other licensing: by permission,
   jangkj@hongik.ac.kr.
 
-  Week 9, Hour 2 demo (Wed 28 Oct) --- PyTorch, by training the MLP language
-  model of Bengio et al. (2003). The names of the course's PyTorch notebook (every seventh name
-  kept for validation), three characters of context, an embedding table with 2 numbers per
-  character (so that it can be drawn; the notebook uses 10), 64 tanh units, 27 scores. The page
-  computes the forward pass, the cross-entropy, backpropagation and the SGD update itself, the
-  steps PyTorch performs for lm(...), F.cross_entropy, loss.backward() and opt.step().
-  Weight decay adds lambda times each parameter to its gradient, as torch.optim.SGD(weight_decay=...)
-  does (used in the hour on generalization and regularization).
-  Keys: Right arrow = next line, N = one step, Space = train / pause, R = reset,
-        S = sample names.
-  One self-contained file: no server, no network, no libraries.
+  Week 9, Hour 2 demo (Wed 28 Oct): PyTorch, by training the MLP language model of Bengio et
+  al. (2003). Every step is one slide of the deck week09-pytorch-demo (lectures/current/slides):
+  the slide fills the window, and the panel on its right is drawn here, live, from the same data.
+  Each panel shows one cell of week09_mlp_lm_lesson.py and what PyTorch printed when it ran
+  (recorded with `python week09_mlp_lm_lesson.py --json week09_mlp_lm_demo_files/lesson.js`), and a
+  picture of the result. The last step trains the model in the page itself (the same
+  computation: forward pass, cross-entropy, backpropagation, the SGD update), starting from the
+  parameters PyTorch initialized.
+
+  Files: week09_mlp_lm_demo_files/lesson.js (the cells and their outputs),
+         week09_mlp_lm_demo_files/slides.js and slide-NN.png (the slides and where their panel is;
+         written by lectures/current/tools/demo_slides.py).
+  Keys: Right / Left arrow, Page Down / Page Up, Space = next / previous step;
+        Home / End = first / last step; F = full screen. The address #step=N opens step N.
+        In the last step: T = train / pause, N = one step, R = reset, S = sample names;
+        #step=25&lr=1&wd=0.01&train=3000 trains 3000 steps at once with those settings (for screenshots).
+  ?panel#step=N shows only the panel of step N, at its design size (for the slides' pictures).
 -->
 <style>
 :root {
-  --bg: #ffffff;
-  --panel: #f4f5f7;
+  --ground: #2b2f36;
+  --paper: #ffffff;
   --ink: #1a1a1a;
-  --muted: #5b6068;
-  --rule: #d9dce1;
+  --muted: #5d636c;
+  --rule: #d5d9df;
   --grid: #eceef1;
+  --code-bg: #f6f7f9;
+  --out-bg: #ffffff;
   --line: #2f6fbf;
-  --err: #c00000;
+  --err: #c0262d;
   --pos: #1e8e5a;
-  --exact: #b7791f;
   --hl: #fff1c2;
-  --hl-ink: #1a1a1a;
-  --btn: #ffffff;
-  --btn-ink: #1a1a1a;
-  --btn-edge: #b9bec6;
-  --btn-primary: #2f6fbf;
-  --btn-primary-ink: #ffffff;
-  --code-bg: #fbfbfc;
-  --comment: #8a8f98;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #111418;
-    --panel: #1a1f26;
-    --ink: #e8eaed;
-    --muted: #9aa3ae;
-    --rule: #2c333c;
-    --grid: #222931;
-    --line: #6ea8ff;
-    --err: #ff6b6b;
-    --pos: #4fcf8e;
-    --exact: #e0b04f;
-    --hl: #3a3320;
-    --hl-ink: #fff4d6;
-    --btn: #1f252d;
-    --btn-ink: #e8eaed;
-    --btn-edge: #3a424d;
-    --btn-primary: #4a86d8;
-    --btn-primary-ink: #0b0e12;
-    --code-bg: #151a20;
-    --comment: #7d8793;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
-  --grid: #222931; --line: #6ea8ff; --err: #ff6b6b; --pos: #4fcf8e; --exact: #e0b04f;
-  --hl: #3a3320; --hl-ink: #fff4d6; --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d;
-  --btn-primary: #4a86d8; --btn-primary-ink: #0b0e12; --code-bg: #151a20; --comment: #7d8793;
+  --kw: #7a3eb1;
+  --str: #1d7a46;
+  --num: #a35a00;
+  --com: #8a8f98;
+  --accent: #a3192f;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; }
+html, body { margin: 0; height: 100%; }
 body {
-  background: var(--bg); color: var(--ink);
-  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+  background: var(--ground); color: var(--ink); overflow: hidden;
+  font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
 }
-header {
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px;
-  padding: 10px 20px 6px; border-bottom: 1px solid var(--rule);
+/* the stage: a 16:9 slide, as large as the window allows */
+#stage {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  background: var(--paper) center / 100% 100% no-repeat; box-shadow: 0 0 30px rgba(0, 0, 0, 0.35);
 }
-header h1 { font-size: 22px; margin: 0; font-weight: 650; text-wrap: balance; }
-header p { margin: 0; color: var(--muted); font-size: 14px; }
-.controls {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
-  padding: 8px 20px; border-bottom: 1px solid var(--rule); background: var(--panel);
+#slot { position: absolute; overflow: hidden; background: var(--paper); }
+#panel {
+  position: absolute; left: 0; top: 0; width: 1100px; height: 760px; transform-origin: 0 0;
+  display: flex; flex-direction: column; gap: 12px; background: var(--paper);
 }
-.controls .group { display: flex; align-items: center; gap: 6px; }
-.controls .sep { width: 1px; align-self: stretch; background: var(--rule); margin: 0 4px; }
-label { font-size: 14px; color: var(--muted); }
-select, button, input[type=range] { font: inherit; font-size: 15px; }
-select {
-  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
-  border-radius: 6px; padding: 5px 8px;
-}
-button {
-  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
-  border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
-}
-button.primary { background: var(--btn-primary); color: var(--btn-primary-ink); border-color: var(--btn-primary); }
-button:hover { filter: brightness(0.97); }
-button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid var(--line); outline-offset: 2px; }
-kbd {
-  font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; color: inherit; opacity: 0.75;
-  border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; margin-left: 4px;
-}
-main {
-  display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
-  gap: 12px; padding: 10px 20px 12px;
-}
-@media (min-width: 901px) and (min-height: 600px) {
-  body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-  main { flex: 1; min-height: 0; }
-}
-@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
-@media (max-width: 1440px) { kbd { display: none; } }
+body.panelonly { background: var(--paper); overflow: hidden; }
+body.panelonly #stage { position: static; transform: none; box-shadow: none; width: 1100px !important; height: 760px !important; background: none; }
+body.panelonly #slot { left: 0 !important; top: 0 !important; width: 1100px !important; height: 760px !important; }
+body.panelonly #panel { transform: none !important; }
+body.panelonly #nav, body.panelonly #fallback { display: none; }
+/* without the slide pictures: the step's title above the panel */
+#copy { position: absolute; left: 3.2%; bottom: 1.6%; width: 52%; font-size: 0.72em; line-height: 1.3; color: var(--muted); }
+#copy a { color: inherit; }
+body.panelonly #copy { display: none; }
+#fallback { position: absolute; left: 4%; top: 3%; font-size: 3.2vh; font-weight: 650; color: var(--accent); display: none; }
 
+.cell { border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+.cell .lab { font: 600 15px/1 system-ui, sans-serif; color: var(--muted); padding: 7px 12px 6px; background: var(--grid);
+  display: flex; justify-content: space-between; letter-spacing: 0.02em; }
+.cell pre { margin: 0; padding: 8px 14px 10px; font: 22px/1.36 ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  white-space: pre-wrap; overflow-wrap: anywhere; overflow: hidden; }
+.code pre { background: var(--code-bg); }
+.out pre { background: var(--out-bg); color: #222; }
+.code pre .k { color: var(--kw); font-weight: 600; }
+.code pre .s { color: var(--str); }
+.code pre .n { color: var(--num); }
+.code pre .c { color: var(--com); }
+.row { display: flex; gap: 12px; min-height: 0; flex: 1; }
+.row > .out { flex: 1 1 50%; }
+.vis { flex: 1 1 50%; border: 1px solid var(--rule); border-radius: 10px; min-height: 0; position: relative; }
+.vis svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.full { flex: 1; }
+/* the live panel */
+.ctl { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 18px; }
+.ctl button, .ctl select { font: inherit; font-size: 18px; padding: 6px 14px; border-radius: 8px; border: 1px solid #b9bec6; background: #fff; color: var(--ink); cursor: pointer; }
+.ctl button.primary { background: var(--line); border-color: var(--line); color: #fff; }
+.ctl label { color: var(--muted); }
+.ctl kbd { font: 13px system-ui; border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; margin-left: 6px; color: var(--muted); }
+.ctl button.primary kbd { color: #fff; border-color: rgba(255, 255, 255, 0.6); }
+.stat { font: 19px ui-monospace, Menlo, Consolas, monospace; color: var(--ink); }
+.samples { font: 19px/1.5 ui-monospace, Menlo, Consolas, monospace; padding: 8px 14px; }
+button:focus-visible, select:focus-visible { outline: 3px solid var(--line); outline-offset: 2px; }
 
-.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px; }
-.card h2 { font-size: 15px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
-.left, .right { display: grid; gap: 10px; min-width: 0; min-height: 0; }
-.left { grid-template-rows: minmax(0, 1fr) auto auto; }
-.right { grid-template-rows: minmax(0, 1fr) auto; }
-.card.grow .code { flex: 1; overflow: auto; }
-.card.grow { display: flex; flex-direction: column; min-height: 0; }
-.card.grow svg { flex: 1; min-height: 110px; height: 100%; }
-#chart { min-height: 250px; }
-.bars svg { height: 150px; }
-svg { display: block; width: 100%; }
-.caption {
-  font-size: 18px; min-height: 3.1em; padding: 8px 14px;
-  background: var(--bg); border: 1px solid var(--rule); border-left: 4px solid var(--line);
-  border-radius: 8px;
+/* navigation: shown while the mouse moves */
+#nav {
+  position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; gap: 8px; align-items: center;
+  background: rgba(20, 22, 26, 0.86); color: #fff; padding: 6px 10px; border-radius: 10px; font-size: 14px;
+  opacity: 0; transition: opacity 0.25s; z-index: 5;
 }
-.caption .math { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 16px; }
-.bars { display: grid; grid-template-columns: 1fr 1fr 1.25fr; gap: 10px; }
-@media (max-width: 900px) { .bars { grid-template-columns: 1fr 1fr; } }
-.code {
-  font: 15.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  background: var(--code-bg); border: 1px solid var(--rule); border-radius: 8px;
-  padding: 6px 0; overflow-x: auto;
-}
-.code .ln { display: grid; grid-template-columns: 2.4em 1fr; padding: 0 10px 0 0; white-space: pre; }
-.code .ln .no { color: var(--muted); text-align: right; padding-right: 12px; user-select: none; }
-.code .ln.on { background: var(--hl); color: var(--hl-ink); }
-.code .ln.diff { box-shadow: inset 4px 0 0 var(--err); }
-.code .ln.on .no { color: var(--hl-ink); font-weight: 700; }
-.code .c { color: var(--comment); }
-.vars { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; font-variant-numeric: tabular-nums; }
-.vars .v { display: flex; justify-content: space-between; padding: 2px 4px; border-bottom: 1px solid var(--rule);
-  font: 16px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
-.vars .v .k { color: var(--muted); }
-.vars .v.changed .val { color: var(--err); font-weight: 700; }
-.note { color: var(--muted); font-size: 13px; }
-footer {
-  padding: 4px 20px 6px; border-top: 1px solid var(--rule); background: var(--panel);
-  font-size: 12.5px; color: var(--muted);
-}
-footer a { color: var(--line); }
-.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-/* screen-size overrides: last, so they win over the base rules */
-@media (min-width: 901px) and (max-height: 820px) {
-  header { padding: 6px 20px 4px; }
-  header h1 { font-size: 19px; }
-  .controls { padding: 5px 20px; }
-  main { gap: 8px; padding: 6px 16px 8px; }
-  .left, .right { gap: 7px; }
-  .card { padding: 5px 8px; }
-  .card h2 { font-size: 12px; margin-bottom: 3px; }
-  .code { font-size: 13.5px; line-height: 1.3; padding: 2px 0; }
-  .vars .v { font-size: 14px; padding: 1px 4px; }
-  .caption { font-size: 16px; min-height: 2.9em; padding: 6px 12px; }
-  .caption .math { font-size: 14px; }
-  .bars svg { height: 112px; }
-  .card.grow svg { min-height: 80px; }
-  footer { padding: 3px 16px 4px; font-size: 11.5px; }
-  #chart { min-height: 200px; }
-}
-@media (min-width: 1800px) and (min-height: 1000px) {
-  body { font-size: 18px; }
-  header h1 { font-size: 26px; }
-  select, button { font-size: 17px; }
-  .card h2 { font-size: 15px; }
-  .code { font-size: 19px; }
-  .vars .v { font-size: 19px; }
-  .caption { font-size: 21px; }
-  .caption .math { font-size: 18px; }
-  .bars svg { height: 200px; }
-}
-</style>
-<style>
-/* MLP-LM-specific additions */
-.card, .card.grow, .code, .vars { min-width: 0; }
-.vars .v .val { overflow-x: auto; white-space: nowrap; margin-left: 8px; }
-.vars .v.wide { grid-column: 1 / -1; }
-.bars { grid-template-columns: 1.15fr 1fr; }
-#scene { min-height: 300px; }
-.code { font-size: 14px; }
-input[type=text] { font: inherit; font-size: 15px; width: 5em; padding: 4px 6px; border-radius: 6px;
-  border: 1px solid var(--btn-edge); background: var(--btn); color: var(--btn-ink); }
-.samples { font: 15px ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--ink); padding: 2px 4px; line-height: 1.5; }
-@media (max-width: 900px) { #scene { min-height: 520px; } .bars { grid-template-columns: 1fr; } }
+#nav.show, #nav:hover, #nav:focus-within { opacity: 1; }
+#nav button { font: inherit; background: transparent; color: #fff; border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+#nav select { font: inherit; max-width: 360px; background: #1d2026; color: #fff; border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 6px; padding: 3px 6px; }
+@media (prefers-reduced-motion: reduce) { #nav { transition: none; } }
 </style>
 </head>
 <body>
-<header>
-  <h1>Training a character MLP language model</h1>
-  <p>PyTorch, by training the MLP language model &middot; three letters of context, an embedding table, one hidden layer, minibatch SGD</p>
-</header>
-
-<div class="controls" role="toolbar" aria-label="Demo controls">
-  <div class="group">
-    <button id="bLine" class="primary">Next line<kbd>&rarr;</kbd></button>
-    <button id="bStep">One step<kbd>N</kbd></button>
-    <button id="bRun">Train<kbd>Space</kbd></button>
-    <button id="bReset">Reset<kbd>R</kbd></button>
-  </div>
-  <span class="sep" aria-hidden="true"></span>
-  <div class="group">
-    <label for="lr">Learning rate</label>
-    <select id="lr">
-      <option value="0.01">0.01</option>
-      <option value="0.1">0.1</option>
-      <option value="0.3" selected>0.3</option>
-      <option value="1">1</option>
-      <option value="10">10</option>
-    </select>
-    <label for="bs">Batch</label>
-    <select id="bs">
-      <option value="1">1</option>
-      <option value="8">8</option>
-      <option value="64" selected>64</option>
-      <option value="0">all</option>
-    </select>
-    <label for="wd">Weight decay</label>
-    <select id="wd">
-      <option value="0" selected>0</option>
-      <option value="0.001">0.001</option>
-      <option value="0.01">0.01</option>
-      <option value="0.03">0.03</option>
-    </select>
-  </div>
-  <div class="group">
-    <button id="bSample">Sample names<kbd>S</kbd></button>
-  </div>
-  <div class="group">
-    <label for="ctx">Context</label>
-    <input id="ctx" type="text" value="emm" maxlength="3" autocomplete="off" spellcheck="false">
-  </div>
+<div id="stage" role="region" aria-label="Slide">
+  <div id="fallback"></div>
+  <p id="copy">&copy; 2026 Kuk Jin Jang, Hongik University &middot;
+    <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>; commercial or closed-source use by
+    permission (<a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>) &middot; the model follows Bengio et al., &ldquo;A Neural Probabilistic Language Model&rdquo; (JMLR, 2003); tensors, automatic differentiation and modules follow d2l.ai 2.1, 2.5 and 6.1</p>
+  <div id="slot"><div id="panel" aria-live="polite"></div></div>
 </div>
+<nav id="nav" aria-label="Steps">
+  <button id="bBack" aria-label="Previous step">&larr;</button>
+  <select id="pick" aria-label="Go to step"></select>
+  <button id="bNext" aria-label="Next step">&rarr;</button>
+  <button id="bFull">Full screen</button>
+</nav>
 
-<main>
-  <section class="left">
-    <div class="card grow">
-      <svg id="scene" role="img" aria-label="The two numbers of every character in the embedding table, and the training and validation loss"></svg>
-    </div>
-    <div class="caption" id="caption" aria-live="polite"></div>
-    <div class="bars">
-      <div class="card"><h2 id="predTitle">P(next letter | context)</h2><svg id="barPred"></svg></div>
-      <div class="card"><h2>Sampled names</h2><div class="samples" id="samples"></div></div>
-    </div>
-  </section>
-
-  <section class="right">
-    <div class="card grow">
-      <h2>mlp_lm.py</h2>
-      <div class="code" id="code"></div>
-    </div>
-    <div class="card">
-      <h2>Variables</h2>
-      <div class="vars" id="vars"></div>
-    </div>
-  </section>
-</main>
-
-<footer>
-  &copy; 2026 Kuk Jin Jang, Hongik University &middot;
-  <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>; commercial or
-  closed-source use by permission (<a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>) &middot;
-  the stepper follows the Week 4 demos, whose loop comes from
-  &ldquo;Machine Learning From Scratch, Part 1&rdquo; by
-  <a href="https://www.tiktok.com/@machinelearningtogo">@machinelearningtogo</a> on TikTok &middot;
-  the model follows Bengio et al., &ldquo;A Neural Probabilistic Language Model&rdquo; (JMLR, 2003);
-  minibatch SGD follows d2l.ai 12.4&ndash;12.5
-</footer>
-
+<script src="week09_mlp_lm_demo_files/lesson.js"></script>
+<script src="week09_mlp_lm_demo_files/slides.js"></script>
 <script>
 "use strict";
-// ---- data ---------------------------------------------------------------------
-// The 240 names of the course's PyTorch notebook. Every seventh name (in alphabetical order)
-// is kept for validation; "." marks the start and the end of a name.
-const NAMES = "aaliyah aaron abigail adam addison adeline adrian aiden alexa alexander alice allison alyssa amelia andrew angel anna anthony aria ariana arianna arthur asher aubrey audrey aurora austin autumn ava avery axel bella benjamin bianca brayden brielle brooklyn bryson caleb cameron camila caroline carson carter charles charlotte chloe christian christopher claire colton connor cooper cora daisy daniel david declan delilah dominic dylan easton eleanor elena eli eliana elias elijah elizabeth ella ellie emery emilia emily emma ethan eva evan evelyn everett everly ezekiel ezra faith felix finn fiona frank gabriel gabriella genesis george gianna grace grayson greyson hailey hannah harper hazel henry hudson hugo hunter ian iris isaac isabella isaiah isla ivy jace jack jackson jacob jade james jameson jasmine jason jasper jaxon jaxson jayden jeremiah john jonathan jordan jose joseph josephine joshua josiah julia julian june kayden kaylee kennedy kinsley kylie landon lauren layla leah leo leonardo levi liam lila lillian lily lincoln logan louis lucas lucy luke luna lydia mackenzie madeline madelyn madison mariah mason mateo matthew maverick maya megan mia michael mila miles milo molly morgan naomi natalie nathan nevaeh nicholas nicole noah nolan nora nova oliver olivia oscar owen paisley parker penelope piper quinn rachel rhys riley robert roman rose ruby ryan sadie samantha samuel santiago sarah savannah sawyer scarlett sebastian serenity silas simon skylar sofia sophia sophie stella sydney taylor tessa theodore thomas tobias valentina victor victoria violet vivian william willow wren wyatt xavier zoe zoey".split(" ");
-const CH = ["."].concat([...new Set(NAMES.join(""))].sort());
-const V = CH.length, IDX = Object.fromEntries(CH.map((c, i) => [c, i]));
-const BLOCK = 3, D = 2, H = 64;                  // 2 numbers per character, so the table can be drawn
-const VOWELS = new Set("aeiou");
-function examples(words) {
-  const X = [], Y = [];
-  for (const w of words) { let c = [0, 0, 0]; for (const ch of w + ".") { X.push(c); Y.push(IDX[ch]); c = [c[1], c[2], IDX[ch]]; } }
-  return { X, Y };
-}
-const TR = examples(NAMES.filter((_, i) => i % 7 !== 3)), VA = examples(NAMES.filter((_, i) => i % 7 === 3));
-const NTR_NAMES = NAMES.filter((_, i) => i % 7 !== 3).length;
-
-// ---- the model: the parameters as flat arrays -----------------------------------
-function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
-  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
-let rand = rng(1);
-const gauss = () => Math.sqrt(-2 * Math.log(1 - rand())) * Math.cos(2 * Math.PI * rand());
-let P;  // {E: V*D, W1: 6*H, b1: H, W2: H*V, b2: V}
-function init() {
-  rand = rng(1);
-  const mk = (n, s) => Float64Array.from({ length: n }, () => gauss() * s);
-  P = { E: mk(V * D, 1), W1: mk(BLOCK * D * H, 1 / Math.sqrt(BLOCK * D)), b1: new Float64Array(H),
-        W2: mk(H * V, 1 / Math.sqrt(H)), b2: new Float64Array(V) };
-}
-const NPARAM = V * D + BLOCK * D * H + H + H * V + V;
-function forward(ctx) {           // one context -> {e, h, p}
-  const e = new Float64Array(BLOCK * D), h = new Float64Array(H), z = new Float64Array(V);
-  for (let j = 0; j < BLOCK; j++) for (let d = 0; d < D; d++) e[j * D + d] = P.E[ctx[j] * D + d];
-  for (let u = 0; u < H; u++) { let s = P.b1[u]; for (let i = 0; i < BLOCK * D; i++) s += e[i] * P.W1[i * H + u]; h[u] = Math.tanh(s); }
-  let mx = -Infinity;
-  for (let v = 0; v < V; v++) { let s = P.b2[v]; for (let u = 0; u < H; u++) s += h[u] * P.W2[u * V + v]; z[v] = s; if (s > mx) mx = s; }
-  let Z = 0; for (let v = 0; v < V; v++) { z[v] = Math.exp(z[v] - mx); Z += z[v]; }
-  for (let v = 0; v < V; v++) z[v] /= Z;
-  return { e, h, p: z };
-}
-function lossOn(S) { let s = 0; for (let i = 0; i < S.X.length; i++) s -= Math.log(Math.max(1e-300, forward(S.X[i]).p[S.Y[i]])); return s / S.X.length; }
-// one SGD step on the minibatch idx: forward, the mean cross-entropy, backpropagation, the update
-function sgdStep(idx, lr) {
-  const G = { E: new Float64Array(V * D), W1: new Float64Array(BLOCK * D * H), b1: new Float64Array(H),
-              W2: new Float64Array(H * V), b2: new Float64Array(V) };
-  const B = idx.length; let loss = 0;
-  for (const i of idx) {
-    const ctx = TR.X[i], y = TR.Y[i], { e, h, p } = forward(ctx);
-    loss -= Math.log(Math.max(1e-300, p[y])) / B;
-    const dz = Float64Array.from(p, (q, v) => (q - (v === y ? 1 : 0)) / B);   // softmax + cross-entropy
-    const dh = new Float64Array(H);
-    for (let u = 0; u < H; u++) { let s = 0; for (let v = 0; v < V; v++) { G.W2[u * V + v] += h[u] * dz[v]; s += P.W2[u * V + v] * dz[v]; } dh[u] = s * (1 - h[u] * h[u]); }
-    for (let v = 0; v < V; v++) G.b2[v] += dz[v];
-    for (let i2 = 0; i2 < BLOCK * D; i2++) { let s = 0; for (let u = 0; u < H; u++) { G.W1[i2 * H + u] += e[i2] * dh[u]; s += P.W1[i2 * H + u] * dh[u]; }
-      G.E[ctx[Math.floor(i2 / D)] * D + (i2 % D)] += s; }
-    for (let u = 0; u < H; u++) G.b1[u] += dh[u];
-  }
-  let gn = 0; for (const k in G) for (const g of G[k]) gn += g * g;
-  for (const k in P) { const p = P[k], g = G[k]; for (let j = 0; j < p.length; j++) p[j] -= lr * (g[j] + wd() * p[j]); }   // weight decay: + lambda w
-  return { loss, gnorm: Math.sqrt(gn) };
-}
-
-// ---- training state ---------------------------------------------------------------
-const CODE = [
-  ["class MLPLM(nn.Module):", "# Bengio et al. (2003)"],
-  ["    def forward(self, ctx):", "# ctx: (B, 3) character ids"],
-  ["        e = self.emb(ctx).flatten(1)", "# look up 3 rows of 2 numbers: (B, 6)"],
-  ["        h = torch.tanh(self.hidden(e))", "# (B, 64)"],
-  ["        return self.out(h)", "# (B, 27) scores"],
-  ["lm = MLPLM(); opt = torch.optim.SGD(lm.parameters(), lr={LR}, weight_decay={WD})", ""],
-  ["for step in range(steps):", ""],
-  ["    idx = torch.randint(0, len(Xtr), ({B},))", "# a random minibatch"],
-  ["    loss = F.cross_entropy(lm(Xtr[idx]), Ytr[idx])", "# forward: lines 2-5"],
-  ["    opt.zero_grad()", "# gradients to zero"],
-  ["    loss.backward()", "# backpropagation"],
-  ["    opt.step()", "# w <- w - lr * grad"],
-];
-const LOOP = [7, 8, 9, 10, 11];
-let line, step, idx, last, hist, val, running = false, samples = [], gnorm = null, acc = [];
-const lr = () => +document.getElementById("lr").value;
-const wd = () => +document.getElementById("wd").value;
-const bs = () => +document.getElementById("bs").value || TR.X.length;
-function reset() {
-  init(); line = 5; step = 0; idx = null; last = null; gnorm = null; samples = []; acc = [];
-  hist = []; val = [[0, lossOn(VA)]]; hist.push([0, lossOn(TR)]);
-}
-function drawBatch() { const B = bs(); idx = B >= TR.X.length ? TR.X.map((_, i) => i) : Array.from({ length: B }, () => Math.floor(Math.random() * TR.X.length)); }
-function batchLoss() { let s = 0; for (const i of idx) s -= Math.log(forward(TR.X[i]).p[TR.Y[i]]); return s / idx.length; }
-let pend = null;  // the gradient step is taken on "opt.step()"
-function doStep() {   // one whole step: lines 7-11
-  drawBatch(); const r = sgdStep(idx, lr()); step++; last = r.loss; gnorm = r.gnorm;
-  if (!isFinite(r.loss)) running = false;
-  record(r.loss);
-}
-function record(l) {   // the minibatch loss, averaged over 10 steps; the validation loss every 25
-  acc.push(l);
-  if (step % 10 === 0) { hist.push([step, acc.reduce((a, b) => a + b, 0) / acc.length]); acc = []; }
-  if (step % 25 === 0) val.push([step, lossOn(VA)]);
-}
-function nextLine() {
-  if (line === 5 || line === 11) { line = 7; drawBatch(); }
-  else if (line === 7) { line = 8; last = batchLoss(); }
-  else if (line === 8) line = 9;
-  else if (line === 9) line = 10;
-  else if (line === 10) { line = 11; const r = sgdStep(idx, lr()); gnorm = r.gnorm; step++;
-    record(r.loss); }
-}
-
-// ---- sampling and prediction ----------------------------------------------------
-function sample(n = 10) {
-  const out = [];
-  for (let s = 0; s < n; s++) {
-    let c = [0, 0, 0], w = "";
-    while (w.length < 16) { const p = forward(c).p; let r = Math.random(), v = 0; for (; v < V - 1; v++) { r -= p[v]; if (r <= 0) break; }
-      if (v === 0) break; w += CH[v]; c = [c[1], c[2], v]; }
-    out.push(w || "(empty)");
-  }
-  return out;
-}
-function ctxIds() { const t = document.getElementById("ctx").value.toLowerCase().replace(/[^a-z.]/g, "").slice(-3);
-  const s = (".".repeat(3) + t).slice(-3); return { s, ids: [...s].map((c) => IDX[c]) }; }
-
-// ---- drawing --------------------------------------------------------------------
+const PANEL_W = 1100, PANEL_H = 760;
+const SL = typeof SLIDES === "undefined" ? null : SLIDES;   // missing until demo_slides.py has run
+const PANEL_ONLY = /[?&]panel\b/.test(location.search);
+if (PANEL_ONLY) document.body.classList.add("panelonly");
+const STEPS = LESSON.steps.concat([{ title: "Training it yourself", live: true }]);
+const N = STEPS.length;
 const NS = "http://www.w3.org/2000/svg";
+const MONO = "ui-monospace, Menlo, Consolas, 'DejaVu Sans Mono', monospace";
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 function el(tag, attrs, parent, text) {
   const e = document.createElementNS(NS, tag);
   for (const a in attrs) e.setAttribute(a, attrs[a]);
@@ -421,136 +150,280 @@ function el(tag, attrs, parent, text) {
   if (parent) parent.appendChild(e);
   return e;
 }
-const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-const mono = "ui-monospace, Menlo, Consolas, monospace";
+function h(tag, cls, parent, text) {
+  const e = document.createElement(tag); if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text; if (parent) parent.appendChild(e); return e;
+}
+const CH = LESSON.chars, V = CH.length, IDX = Object.fromEntries(CH.map((c, i) => [c, i]));
+const VOWELS = new Set("aeiou");
 
-function drawScene() {
-  const svg = document.getElementById("scene"); svg.innerHTML = "";
-  const W = svg.clientWidth || 640, Hh = svg.clientHeight || 340;
-  svg.setAttribute("viewBox", `0 0 ${W} ${Hh}`);
-  const narrow = W < 560;
-  const sz = narrow ? Math.min(W - 20, Hh / 2 - 40) : Math.min(W * 0.46, Hh - 46);
-  // panel 1: the embedding table, one point per character
-  const x0 = 34, y0 = 26;
-  el("text", { x: x0 - 26, y: 14, "font-size": 12, fill: css("--muted") }, svg, "the embedding table: 2 numbers per character");
-  el("rect", { x: x0, y: y0, width: sz, height: sz, fill: "none", stroke: css("--rule") }, svg);
-  let m = 1; for (let v = 0; v < V; v++) for (let d = 0; d < D; d++) m = Math.max(m, Math.abs(P.E[v * D + d]));
-  if (!isFinite(m)) m = 1;
-  m *= 1.15; const X = (a) => x0 + sz / 2 + a / m * sz / 2, Y = (b) => y0 + sz / 2 - b / m * sz / 2;
-  el("line", { x1: x0, x2: x0 + sz, y1: Y(0), y2: Y(0), stroke: css("--grid") }, svg);
-  el("line", { x1: X(0), x2: X(0), y1: y0, y2: y0 + sz, stroke: css("--grid") }, svg);
-  const cid = ctxIds().ids;
+// ---- Python highlighting (keywords, strings, numbers, comments) -----------------
+const KW = new Set("import as from def class return for in while if else elif with not and or break True False None lambda".split(" "));
+function highlight(pre, code) {
+  const re = /(#.*$)|("[^"]*"|'[^']*')|(\b\d+(?:\.\d+)?(?:e-?\d+)?\b)|([A-Za-z_]\w*)|([\s\S])/gm;
+  let m;
+  while ((m = re.exec(code))) {
+    if (m[1]) h("span", "c", pre, m[1]);
+    else if (m[2]) h("span", "s", pre, m[2]);
+    else if (m[3]) h("span", "n", pre, m[3]);
+    else if (m[4] && KW.has(m[4])) h("span", "k", pre, m[4]);
+    else pre.appendChild(document.createTextNode(m[0]));
+  }
+}
+function cellBox(kind, label, text, right) {
+  const box = h("div", "cell " + kind);
+  const lab = h("div", "lab", box); h("span", "", lab, label); if (right) h("span", "", lab, right);
+  const pre = h("pre", "", box);
+  if (kind === "code") highlight(pre, text); else pre.textContent = text;
+  return box;
+}
+
+// ---- pictures ------------------------------------------------------------------------
+function svgIn(box) { const s = el("svg", {}, box); const W = box.clientWidth, H = box.clientHeight; s.setAttribute("viewBox", `0 0 ${W} ${H}`); return [s, W, H]; }
+function drawEmb(box, vis) {
+  const [s, W, H] = svgIn(box), E = vis.E, mark = new Set(vis.mark || []);
+  el("text", { x: 14, y: 26, "font-size": 17, fill: css("--muted") }, s, vis.G ? "the table E, and −gradient (enlarged)" : "the table E: one point per character");
+  let m = 0.5; for (const v of E) m = Math.max(m, Math.abs(v)); m *= 1.12;
+  const sz = Math.min(W - 40, H - 76), x0 = (W - sz) / 2, y0 = 40;
+  const X = (a) => x0 + sz / 2 + a / m * sz / 2, Y = (b) => y0 + sz / 2 - b / m * sz / 2;
+  el("rect", { x: x0, y: y0, width: sz, height: sz, fill: "none", stroke: css("--rule") }, s);
+  el("line", { x1: x0, x2: x0 + sz, y1: Y(0), y2: Y(0), stroke: css("--grid") }, s);
+  el("line", { x1: X(0), x2: X(0), y1: y0, y2: y0 + sz, stroke: css("--grid") }, s);
+  if (vis.G) {
+    let gm = 1e-9; for (const g of vis.G) gm = Math.max(gm, Math.abs(g));
+    const k = 0.18 * m / gm;
+    for (let v = 0; v < V; v++) {
+      const a = E[2 * v], b = E[2 * v + 1], ga = -vis.G[2 * v] * k, gb = -vis.G[2 * v + 1] * k;
+      if (Math.hypot(ga, gb) < 1e-9) continue;
+      el("line", { x1: X(a), y1: Y(b), x2: X(a + ga), y2: Y(b + gb), stroke: css("--num"), "stroke-width": 2.5 }, s);
+      el("circle", { cx: X(a + ga), cy: Y(b + gb), r: 3.5, fill: css("--num") }, s);
+    }
+  }
   for (let v = 0; v < V; v++) {
-    const a = P.E[v * D], b = P.E[v * D + 1]; if (!isFinite(a) || !isFinite(b)) continue;
+    const a = E[2 * v], b = E[2 * v + 1];
     const col = v === 0 ? css("--pos") : VOWELS.has(CH[v]) ? css("--err") : css("--line");
-    if (cid.includes(v)) el("circle", { cx: X(a), cy: Y(b), r: 13, fill: css("--hl"), stroke: css("--exact") }, svg);
-    el("text", { x: X(a), y: Y(b) + 5, "text-anchor": "middle", "font-size": 16, "font-weight": 700, "font-family": mono, fill: col }, svg, CH[v]);
+    if (mark.has(v)) el("circle", { cx: X(a), cy: Y(b), r: 15, fill: css("--hl"), stroke: css("--num") }, s);
+    el("text", { x: X(a), y: Y(b) + 7, "text-anchor": "middle", "font-size": 21, "font-weight": 700, "font-family": MONO, fill: col }, s, CH[v]);
   }
-  el("text", { x: x0, y: y0 + sz + 16, "font-size": 11.5, fill: css("--muted") }, svg, "vowels red, consonants blue, “.” green");
-  // panel 2: the loss curves
-  const px = narrow ? x0 : x0 + sz + 56, py = narrow ? y0 + sz + 50 : y0, pw = narrow ? W - x0 - 14 : W - px - 14, ph = narrow ? Hh - py - 30 : sz;
-  el("text", { x: px - 30, y: py - 12, "font-size": 12, fill: css("--muted") }, svg, "loss: minibatch, average of 10 steps (blue); validation (red)");
-  el("rect", { x: px, y: py, width: pw, height: ph, fill: "none", stroke: css("--rule") }, svg);
-  const T = Math.max(200, step), lo = 1.5, hi = 4.0;
-  const LX = (s) => px + s / T * pw, LY = (l) => py + ph - (Math.min(hi, Math.max(lo, l)) - lo) / (hi - lo) * ph;
-  for (const l of [2, 2.5, 3, 3.5]) {
-    el("line", { x1: px, x2: px + pw, y1: LY(l), y2: LY(l), stroke: css("--grid") }, svg);
-    el("text", { x: px - 5, y: LY(l) + 4, "text-anchor": "end", "font-size": 11, fill: css("--muted") }, svg, l.toFixed(1));
-  }
-  el("line", { x1: px, x2: px + pw, y1: LY(Math.log(V)), y2: LY(Math.log(V)), stroke: css("--muted"), "stroke-dasharray": "4 3" }, svg);
-  el("text", { x: px + pw - 4, y: LY(Math.log(V)) - 4, "text-anchor": "end", "font-size": 11, fill: css("--muted") }, svg, "ln 27 = 3.30");
-  const path = (pts, col, w) => { if (pts.length < 2) return; el("path", { d: pts.map((q, i) => (i ? "L" : "M") + LX(q[0]).toFixed(1) + " " + LY(q[1]).toFixed(1)).join(""),
-    fill: "none", stroke: col, "stroke-width": w }, svg); };
-  path(hist.filter((q) => isFinite(q[1])), css("--line"), 1.4); path(val.filter((q) => isFinite(q[1])), css("--err"), 2.2);
-  el("text", { x: px + pw, y: py + ph + 16, "text-anchor": "end", "font-size": 11.5, fill: css("--muted") }, svg, `step ${step}`);
-  const best = val.reduce((b, q) => (q[1] < b[1] ? q : b), val[0]);
-  if (best && step > 0) { el("circle", { cx: LX(best[0]), cy: LY(best[1]), r: 4, fill: css("--err") }, svg);
-    el("text", { x: px + 4, y: py + ph + 16, "font-size": 11.5, fill: css("--err") }, svg, `lowest validation ${best[1].toFixed(2)} at step ${best[0]}`); }
+  el("text", { x: x0, y: y0 + sz + 24, "font-size": 16, fill: css("--muted") }, s, "vowels red, consonants blue, “.” green");
 }
-function drawPred() {
-  const svg = document.getElementById("barPred"); svg.innerHTML = "";
-  const W = svg.clientWidth || 300, Hh = svg.clientHeight || 150; svg.setAttribute("viewBox", `0 0 ${W} ${Hh}`);
-  const { s, ids } = ctxIds(); document.getElementById("predTitle").textContent = `P(next letter | “${s}”)`;
-  const p = forward(ids).p, w = (W - 8) / V;
-  let mx = 0; for (const q of p) mx = Math.max(mx, q);
-  const top = [...p.keys()].sort((a, b) => p[b] - p[a]).slice(0, 3);
+function drawBars(box, vis) {
+  const [s, W, H] = svgIn(box), p = vis.p;
+  el("text", { x: 14, y: 26, "font-size": 17, fill: css("--muted") }, s, `P(next character | “${vis.ctx}”)`);
+  let mx = 1e-9; for (const q of p) mx = Math.max(mx, q);
+  const top = [...p.keys()].sort((a, b) => p[b] - p[a]).slice(0, 3), x0 = 12, w = (W - 24) / V, base = H - 30, hh = base - 70;
   for (let v = 0; v < V; v++) {
-    const h = isFinite(p[v]) ? p[v] / Math.max(mx, 1e-9) * (Hh - 40) : 0;
-    el("rect", { x: 4 + v * w + 1, y: Hh - 18 - h, width: w - 2, height: h, fill: top.includes(v) ? css("--err") : css("--line") }, svg);
-    el("text", { x: 4 + v * w + w / 2, y: Hh - 5, "text-anchor": "middle", "font-size": 11, "font-family": mono, fill: css("--muted") }, svg, CH[v]);
+    const bh = p[v] / mx * hh, col = v === vis.y ? css("--pos") : top.includes(v) ? css("--err") : css("--line");
+    el("rect", { x: x0 + v * w + 1.5, y: base - bh, width: w - 3, height: bh, fill: col }, s);
+    el("text", { x: x0 + v * w + w / 2, y: H - 9, "text-anchor": "middle", "font-size": 16, "font-family": MONO, fill: css("--muted") }, s, CH[v]);
   }
-  el("text", { x: W - 6, y: 13, "text-anchor": "end", "font-size": 12, fill: css("--ink") }, svg,
-     top.map((v) => `${CH[v]} ${isFinite(p[v]) ? p[v].toFixed(2) : "–"}`).join("   "));
+  const lab = top.map((v) => `${CH[v]} ${p[v].toFixed(3)}`).join("   ");
+  el("text", { x: W - 14, y: 54, "text-anchor": "end", "font-size": 17, "font-family": MONO, fill: css("--err") }, s, lab);
+  if (vis.y !== undefined) el("text", { x: W - 14, y: 78, "text-anchor": "end", "font-size": 17, "font-family": MONO, fill: css("--pos") }, s, `correct: ${CH[vis.y]} ${p[vis.y].toFixed(3)}`);
 }
-
-// ---- code, caption, variables ---------------------------------------------------
-function renderCode() {
-  const box = document.getElementById("code"); box.innerHTML = "";
-  const on = new Set([line]); if (line === 8) [1, 2, 3, 4].forEach((q) => on.add(q));
-  CODE.forEach(([code, com], q) => {
-    const d = document.createElement("div"); d.className = "ln" + (on.has(q) ? " on" : "");
-    const no = document.createElement("span"); no.className = "no"; no.textContent = q + 1;
-    const tx = document.createElement("span"); tx.textContent = code.replace("{LR}", lr()).replace("{WD}", wd()).replace("{B}", bs());
-    if (com) { const c = document.createElement("span"); c.className = "c"; c.textContent = "  " + com; tx.appendChild(c); }
-    d.append(no, tx); box.appendChild(d);
+function drawPairs(box, vis) {
+  const [s, W] = svgIn(box);
+  el("text", { x: 14, y: 26, "font-size": 17, fill: css("--muted") }, s, "context (X)  →  next character (Y)");
+  vis.rows.forEach(([c, y], i) => {
+    const yy = 76 + i * 50;
+    el("text", { x: W / 2 - 30, y: yy, "text-anchor": "end", "font-size": 30, "font-family": MONO, fill: css("--ink") }, s, c);
+    el("text", { x: W / 2, y: yy, "text-anchor": "middle", "font-size": 26, fill: css("--muted") }, s, "→");
+    el("text", { x: W / 2 + 30, y: yy, "font-size": 30, "font-weight": 700, "font-family": MONO, fill: css("--err") }, s, y);
   });
 }
-function caption() {
-  const c = document.getElementById("caption"), B = bs();
-  const m = {
-    5: `A new model: ${NPARAM.toLocaleString()} parameters at random values. Its loss is about ln 27 = 3.30, the loss of guessing every symbol equally often. Press → to go through one step line by line, N for a whole step, Space to train.`,
-    7: `Pick ${B >= TR.X.length ? "all" : B} of the ${TR.X.length.toLocaleString()} training examples${B >= TR.X.length ? " (the full gradient)" : " at random: a minibatch (d2l 12.5)"}.`,
-    8: `Forward: look up the 2 numbers of each of the 3 characters, the hidden layer, 27 scores; the cross-entropy of the right next characters is ${last !== null ? last.toFixed(3) : "–"}.`,
-    9: "Set the gradients to zero: backward() adds into .grad, so the old gradients must go first.",
-    10: `Backpropagation: the gradient of the loss for every one of the ${NPARAM.toLocaleString()} parameters${gnorm !== null ? "" : ""}.`,
-    11: running ? `Training: step ${step}${wd() ? `, with weight decay ${wd()}: every step also shrinks the weights by the factor ${(1 - lr() * wd()).toFixed(4)}` : ""}. Watch the minibatch loss (blue) and the validation loss (red); the points of the table move as the model learns.`
-                : `One step along the negative gradient with learning rate ${lr()}. ${val.length > 1 && val[val.length - 1][1] > Math.min(...val.map((q) => q[1])) + 0.15 ? "The validation loss is now above its lowest value: the model is fitting the training names too closely." : ""}`,
-  }[line];
-  c.textContent = !isFinite(last ?? 0) || !isFinite(hist[hist.length - 1][1]) ? `The loss became infinite: learning rate ${lr()} is too large, and the steps overshoot. Reset (R) and choose a smaller one.` : (m || "");
+function drawCurve(box, vis) {
+  const [s, W, H] = svgIn(box);
+  const px = 58, py = 40, pw = W - px - 16, ph = H - py - 62, lo = 1.0, hi = 4.0, T = vis.xmax;
+  const LX = (x) => px + x / T * pw, LY = (l) => py + ph - (Math.min(hi, Math.max(lo, l)) - lo) / (hi - lo) * ph;
+  el("text", { x: 14, y: 26, "font-size": 17, fill: css("--muted") }, s, vis.ylabel || "loss");
+  for (let l = 1; l <= 4; l += 0.5) {
+    el("line", { x1: px, x2: px + pw, y1: LY(l), y2: LY(l), stroke: css("--grid") }, s);
+    el("text", { x: px - 7, y: LY(l) + 5, "text-anchor": "end", "font-size": 15, fill: css("--muted") }, s, l.toFixed(1));
+  }
+  el("rect", { x: px, y: py, width: pw, height: ph, fill: "none", stroke: css("--rule") }, s);
+  for (let i = 0; i <= 4; i++) el("text", { x: LX(T * i / 4), y: py + ph + 20, "text-anchor": "middle", "font-size": 15, fill: css("--muted") }, s, Math.round(T * i / 4));
+  el("text", { x: px + pw, y: py + ph + 42, "text-anchor": "end", "font-size": 15, fill: css("--muted") }, s, vis.xlabel);
+  if (vis.ref) { el("line", { x1: px, x2: px + pw, y1: LY(vis.ref), y2: LY(vis.ref), stroke: css("--muted"), "stroke-dasharray": "5 4" }, s);
+    el("text", { x: px + pw - 6, y: LY(vis.ref) - 6, "text-anchor": "end", "font-size": 15, fill: css("--muted") }, s, "ln 27 = 3.30"); }
+  vis.series.forEach((se, i) => {
+    const pts = se.pts.filter((q) => isFinite(q[1]));
+    if (pts.length > 1) el("path", { d: pts.map((q, j) => (j ? "L" : "M") + LX(q[0]).toFixed(1) + " " + LY(q[1]).toFixed(1)).join(""),
+      fill: "none", stroke: css("--" + se.c), "stroke-width": 3 }, s);
+    else if (pts.length === 1) el("circle", { cx: LX(pts[0][0]), cy: LY(pts[0][1]), r: 4, fill: css("--" + se.c) }, s);
+    el("text", { x: px + 12, y: py + ph - 14 - (vis.series.length - 1 - i) * 24, "font-size": 17, "font-weight": 600, fill: css("--" + se.c) }, s, se.name);
+  });
 }
-function renderVars() {
-  const box = document.getElementById("vars"); box.innerHTML = "";
-  const add = (kk, v, wide) => { const d = document.createElement("div"); d.className = "v" + (wide ? " wide" : "");
-    d.innerHTML = `<span class="k">${kk}</span><span class="val">${v}</span>`; box.appendChild(d); };
-  const vl = val[val.length - 1][1];
-  add("step", step); add("batch size", bs() >= TR.X.length ? `all (${TR.X.length})` : bs());
-  add("minibatch loss", last !== null && isFinite(last) ? last.toFixed(3) : "–"); add("gradient norm", gnorm !== null && isFinite(gnorm) ? gnorm.toFixed(3) : "–");
-  add("validation loss", isFinite(vl) ? `${vl.toFixed(3)} (step ${val[val.length - 1][0]})` : "–");
-  add("validation perplexity", isFinite(vl) ? Math.exp(vl).toFixed(1) : "–");
-  add("data", `training ${NTR_NAMES} names (${TR.X.length.toLocaleString()} examples), validation ${NAMES.length - NTR_NAMES} names (${VA.X.length})`, true);
-  add("parameters", `27·2 + (6·64 + 64) + (64·27 + 27) = ${NPARAM.toLocaleString()}`, true);
-}
-function render() { drawScene(); drawPred(); renderCode(); caption(); renderVars();
-  document.getElementById("samples").textContent = samples.length ? samples.join("  ") : "press S to sample names from the model"; }
+const DRAW = { emb: drawEmb, bars: drawBars, pairs: drawPairs, curve: drawCurve };
 
-// ---- controls -------------------------------------------------------------------
-function loop() {
-  if (!running) return;
-  const t0 = performance.now();
-  for (let q = 0; q < 4 && running && performance.now() - t0 < 30; q++) doStep();
-  line = 11; render(); requestAnimationFrame(loop);
+// ---- one recorded step: the cell, its output, and a picture ------------------------
+function showCell(k) {
+  const st = STEPS[k], P = document.getElementById("panel"); P.innerHTML = "";
+  const codeLines = st.code.split("\n").length, outLines = st.out ? st.out.split("\n").length : 0;
+  P.appendChild(cellBox("code", `In [${k + 1}]`, st.code, "Python"));
+  if (st.vis) {
+    const row = h("div", "row", P);
+    if (st.out) row.appendChild(cellBox("out", "Out", st.out));
+    const v = h("div", "vis", row);
+    if (!st.out) v.style.flexBasis = "100%";
+    requestAnimationFrame(() => DRAW[st.vis.kind](v, st.vis));
+  } else if (st.out) {
+    const o = cellBox("out full", "Out", st.out); P.appendChild(o);
+  }
+  // long cells: set the code a little smaller so that everything fits
+  const big = codeLines + outLines > 20 || (st.vis && codeLines > 10);
+  P.querySelectorAll("pre").forEach((pre) => { if (big) pre.style.fontSize = "19px"; });
 }
-function setRun(on) { running = on; document.getElementById("bRun").firstChild.textContent = on ? "Pause" : "Train"; if (on) requestAnimationFrame(loop); else render(); }
-document.getElementById("bLine").onclick = () => { setRun(false); nextLine(); render(); };
-document.getElementById("bStep").onclick = () => { setRun(false); doStep(); line = 11; render(); };
-document.getElementById("bRun").onclick = () => setRun(!running);
-document.getElementById("bReset").onclick = () => { setRun(false); reset(); render(); };
-document.getElementById("bSample").onclick = () => { samples = sample(); render(); };
-document.getElementById("lr").onchange = render;
-document.getElementById("bs").onchange = render;
-document.getElementById("wd").onchange = render;
-document.getElementById("ctx").oninput = render;
-document.addEventListener("keydown", (x) => {
-  if (x.target.tagName === "SELECT" || x.target.tagName === "INPUT") return;
-  const key = x.key.toLowerCase();
-  if (key === "arrowright") { x.preventDefault(); document.getElementById("bLine").click(); }
-  else if (key === " ") { x.preventDefault(); document.getElementById("bRun").click(); }
-  else if (key === "n") document.getElementById("bStep").click();
-  else if (key === "r") document.getElementById("bReset").click();
-  else if (key === "s") document.getElementById("bSample").click();
+
+// ---- the live step: the same model, trained in the page -----------------------------
+const BLOCK = 3, D = 2, HID = 64;
+function examples(words) {
+  const X = [], Y = [];
+  for (const w of words) { let c = [0, 0, 0]; for (const ch of w + ".") { X.push(c); Y.push(IDX[ch]); c = [c[1], c[2], IDX[ch]]; } }
+  return { X, Y };
+}
+const TR = examples(LESSON.train), VA = examples(LESSON.val);
+const INIT = STEPS.find((s) => s.init).init;
+let P0;   // {E: V*D, W1: 6*HID (in, out), b1, W2: HID*V (in, out), b2}
+function initParams() { P0 = Object.fromEntries(Object.keys(INIT).map((k) => [k, Float64Array.from(INIT[k])])); }
+function forward(ctx, Q = P0) {
+  const e = new Float64Array(BLOCK * D), hh = new Float64Array(HID), p = new Float64Array(V);
+  for (let j = 0; j < BLOCK; j++) for (let d = 0; d < D; d++) e[j * D + d] = Q.E[ctx[j] * D + d];
+  for (let u = 0; u < HID; u++) { let s = Q.b1[u]; for (let i = 0; i < BLOCK * D; i++) s += e[i] * Q.W1[i * HID + u]; hh[u] = Math.tanh(s); }
+  let mx = -Infinity;
+  for (let v = 0; v < V; v++) { let s = Q.b2[v]; for (let u = 0; u < HID; u++) s += hh[u] * Q.W2[u * V + v]; p[v] = s; if (s > mx) mx = s; }
+  let Z = 0; for (let v = 0; v < V; v++) { p[v] = Math.exp(p[v] - mx); Z += p[v]; }
+  for (let v = 0; v < V; v++) p[v] /= Z;
+  return { e, h: hh, p };
+}
+function lossOn(S) { let s = 0; for (let i = 0; i < S.X.length; i++) s -= Math.log(Math.max(1e-300, forward(S.X[i]).p[S.Y[i]])); return s / S.X.length; }
+function sgdStep(idx, lr, wd = 0) {   // forward, mean cross-entropy, backpropagation, then w <- w - lr * (grad + wd * w)
+  const G = Object.fromEntries(Object.keys(P0).map((k) => [k, new Float64Array(P0[k].length)]));
+  const B = idx.length; let loss = 0;
+  for (const i of idx) {
+    const ctx = TR.X[i], y = TR.Y[i], { e, h: hh, p } = forward(ctx);
+    loss -= Math.log(Math.max(1e-300, p[y])) / B;
+    const dz = Float64Array.from(p, (q, v) => (q - (v === y ? 1 : 0)) / B), dh = new Float64Array(HID);
+    for (let u = 0; u < HID; u++) { let s = 0; for (let v = 0; v < V; v++) { G.W2[u * V + v] += hh[u] * dz[v]; s += P0.W2[u * V + v] * dz[v]; } dh[u] = s * (1 - hh[u] * hh[u]); }
+    for (let v = 0; v < V; v++) G.b2[v] += dz[v];
+    for (let i2 = 0; i2 < BLOCK * D; i2++) { let s = 0; for (let u = 0; u < HID; u++) { G.W1[i2 * HID + u] += e[i2] * dh[u]; s += P0.W1[i2 * HID + u] * dh[u]; }
+      G.E[ctx[Math.floor(i2 / D)] * D + (i2 % D)] += s; }
+    for (let u = 0; u < HID; u++) G.b1[u] += dh[u];
+  }
+  for (const k in P0) { const w = P0[k], g = G[k]; for (let j = 0; j < w.length; j++) w[j] -= lr * (g[j] + wd * w[j]); }
+  return loss;
+}
+let L = null;   // the live state
+function liveReset() { initParams(); L = { step: 0, acc: [], hist: [], val: [[0, lossOn(VA)]], samples: [], running: false }; }
+function liveStep() {
+  const B = +document.getElementById("bs").value || TR.X.length, lr = +document.getElementById("lr").value, wd = +document.getElementById("wd").value;
+  const idx = B >= TR.X.length ? TR.X.map((_, i) => i) : Array.from({ length: B }, () => Math.floor(Math.random() * TR.X.length));
+  const l = sgdStep(idx, lr, wd); L.step++; L.acc.push(l);
+  if (L.step % 100 === 0) { L.hist.push([L.step - 50, L.acc.reduce((a, b) => a + b, 0) / L.acc.length]); L.acc = []; L.val.push([L.step, lossOn(VA)]); }
+  L.last = l;
+}
+function sample(n = 8) {
+  const out = [];
+  for (let s = 0; s < n; s++) {
+    let c = [0, 0, 0], w = "";
+    while (w.length < 16) { const p = forward(c).p; let r = Math.random(), v = 0; for (; v < V - 1; v++) { r -= p[v]; if (r <= 0) break; }
+      if (v === 0) break; w += CH[v]; c = [c[1], c[2], v]; }
+    out.push(w + (LESSON.train.includes(w) ? "  (a training name)" : ""));
+  }
+  return out;
+}
+function showLive() {
+  if (!L) liveReset();
+  const P = document.getElementById("panel"); P.innerHTML = "";
+  P.insertAdjacentHTML("beforeend", `<div class="ctl">
+    <button id="bTrain" class="primary">${L.running ? "Pause" : "Train"}<kbd>T</kbd></button>
+    <button id="bOne">One step<kbd>N</kbd></button>
+    <button id="bReset">Reset<kbd>R</kbd></button>
+    <label for="lr">lr</label><select id="lr">${[0.03, 0.3, 1, 3, 10].map((v) => `<option${v === 0.3 ? " selected" : ""}>${v}</option>`).join("")}</select>
+    <label for="wd">weight decay</label><select id="wd">${[0, 0.001, 0.01, 0.03].map((v) => `<option${v === 0 ? " selected" : ""}>${v}</option>`).join("")}</select>
+    <label for="bs">batch</label><select id="bs">${[1, 8, 64, 0].map((v) => `<option value="${v}"${v === 64 ? " selected" : ""}>${v || "all"}</option>`).join("")}</select>
+    <button id="bSample">Sample names<kbd>S</kbd></button></div>`);
+  const stat = h("div", "stat", P);
+  const row = h("div", "row", P);
+  const curve = h("div", "vis", row), emb = h("div", "vis", row);
+  curve.style.flexBasis = "58%"; emb.style.flexBasis = "42%";
+  const sm = h("div", "cell out", P); sm.style.flex = "0 0 auto";
+  h("div", "lab", sm).appendChild(h("span", "", null, "sampled names"));
+  const smp = h("div", "samples", sm);
+  const draw = () => {
+    stat.textContent = `step ${L.step}   minibatch loss ${L.last === undefined ? "–" : L.last.toFixed(3)}   validation loss ${L.val[L.val.length - 1][1].toFixed(3)}`;
+    curve.innerHTML = ""; emb.innerHTML = "";
+    drawCurve(curve, { xmax: Math.max(1000, Math.ceil(L.step / 1000) * 1000), xlabel: "step", ref: Math.log(V),
+      series: [{ name: "minibatch loss (mean of 100 steps)", pts: L.hist, c: "line" }, { name: "validation loss", pts: L.val, c: "err" }] });
+    drawEmb(emb, { E: Array.from(P0.E) });
+    smp.textContent = L.samples.length ? L.samples.join("   ") : "press S to sample names from the model";
+  };
+  L.draw = draw;
+  const q = new URLSearchParams(location.hash.slice(1));
+  for (const id of ["lr", "wd", "bs"]) if (q.has(id)) document.getElementById(id).value = q.get(id);
+  if (q.has("train") && L.step === 0) { const n = +q.get("train"); while (L.step < n) liveStep(); L.samples = sample(); }
+  requestAnimationFrame(draw);
+  document.getElementById("bTrain").onclick = toggleTrain;
+  document.getElementById("bOne").onclick = () => { liveStep(); draw(); };
+  document.getElementById("bReset").onclick = () => { L.running = false; liveReset(); showLive(); };
+  document.getElementById("bSample").onclick = () => { L.samples = sample(); draw(); };
+}
+function toggleTrain() {
+  L.running = !L.running; document.getElementById("bTrain").firstChild.textContent = L.running ? "Pause" : "Train";
+  const tick = () => { if (!L.running || cur !== N - 1) return; const t0 = performance.now();
+    while (performance.now() - t0 < 25) liveStep(); L.draw(); requestAnimationFrame(tick); };
+  if (L.running) requestAnimationFrame(tick);
+}
+
+// ---- the slides --------------------------------------------------------------------------
+let cur = 0;
+function layout() {
+  const st = document.getElementById("stage"), slot = document.getElementById("slot");
+  if (PANEL_ONLY) return;
+  const W = Math.min(innerWidth, innerHeight * 16 / 9), H = W * 9 / 16;
+  st.style.width = W + "px"; st.style.height = H + "px"; st.style.fontSize = (W / 1920 * 16) + "px";
+  const sl = SL && SL.pages[cur];
+  const box = sl ? sl.box : [0.46, 0.17, 0.5, 0.5 * 16 / 9 * PANEL_H / PANEL_W];   // fractions of the slide
+  slot.style.left = box[0] * W + "px"; slot.style.top = box[1] * H + "px";
+  slot.style.width = box[2] * W + "px"; slot.style.height = box[3] * H + "px";
+  document.getElementById("panel").style.transform = `scale(${box[2] * W / PANEL_W})`;
+  st.style.backgroundImage = sl ? `url("${SL.dir}${sl.img}")` : "none";
+  const fb = document.getElementById("fallback"); fb.style.display = sl ? "none" : "block"; fb.textContent = STEPS[cur].title;
+}
+function show(k) {
+  cur = Math.max(0, Math.min(N - 1, k));
+  if (L) L.running = false;
+  if (!location.hash.includes("step=" + (cur + 1) + "&")) history.replaceState(null, "", location.search + "#step=" + (cur + 1));
+  document.getElementById("pick").value = cur;
+  layout();
+  if (STEPS[cur].live) showLive(); else showCell(cur);
+}
+const pick = document.getElementById("pick");
+STEPS.forEach((s, i) => { const o = document.createElement("option"); o.value = i; o.textContent = `${i + 1}. ${s.title}`; pick.appendChild(o); });
+pick.onchange = () => show(+pick.value);
+document.getElementById("bBack").onclick = () => show(cur - 1);
+document.getElementById("bNext").onclick = () => show(cur + 1);
+document.getElementById("bFull").onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+addEventListener("keydown", (e) => {
+  if (e.target.tagName === "SELECT" && !["ArrowLeft", "ArrowRight"].includes(e.key)) return;
+  const k = e.key;
+  if (k === "ArrowRight" || k === "PageDown" || (k === " " && !STEPS[cur].live)) { show(cur + 1); e.preventDefault(); }
+  else if (k === "ArrowLeft" || k === "PageUp") { show(cur - 1); e.preventDefault(); }
+  else if (k === "Home") show(0);
+  else if (k === "End") show(N - 1);
+  else if (k === "f" || k === "F") document.getElementById("bFull").click();
+  else if (STEPS[cur].live) {
+    if (k === "t" || k === "T") toggleTrain();
+    else if (k === "n" || k === "N") document.getElementById("bOne").click();
+    else if (k === "r" || k === "R") document.getElementById("bReset").click();
+    else if (k === "s" || k === "S") document.getElementById("bSample").click();
+  }
 });
-window.addEventListener("resize", render);
-reset(); render();
+let navT;
+addEventListener("mousemove", (e) => { if (!e.movementX && !e.movementY) return; const n = document.getElementById("nav"); n.classList.add("show"); clearTimeout(navT); navT = setTimeout(() => n.classList.remove("show"), 1800); });
+addEventListener("resize", () => show(cur));
+addEventListener("hashchange", () => { const m = location.hash.match(/step=(\d+)/); if (m && +m[1] - 1 !== cur) show(+m[1] - 1); });
+const m0 = location.hash.match(/step=(\d+)/);
+show(m0 ? +m0[1] - 1 : 0);
 </script>
 </body>
 </html>

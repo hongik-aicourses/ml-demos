@@ -461,7 +461,15 @@ function render() {
 }
 document.getElementById("bNear").onclick = doNear;
 document.getElementById("bAna").onclick = doAna;
-document.getElementById("set").onchange = () => { last = "map"; render(); };
+// choosing a map also fills in an analogy from its words, and runs both
+const MAP_ANA = { caps: ["seoul", "korea", "japan"], royal: ["king", "man", "woman"], animals: ["cats", "cat", "dog"],
+                  nums: ["three", "two", "four"], verbs: ["wrote", "write", "sing"] };
+function chooseMap(set) {
+  document.getElementById("set").value = set;
+  ["a", "b", "c"].forEach((id, i) => (document.getElementById(id).value = MAP_ANA[set][i]));
+  doAna(); last = "map"; render();
+}
+document.getElementById("set").onchange = (e) => chooseMap(e.target.value);
 ["q"].forEach((id) => document.getElementById(id).addEventListener("keydown", (x) => { if (x.key === "Enter") doNear(); }));
 ["a", "b", "c"].forEach((id) => document.getElementById(id).addEventListener("keydown", (x) => { if (x.key === "Enter") doAna(); }));
 window.addEventListener("resize", render);
@@ -501,7 +509,7 @@ function guide(k) {
   const st = GUIDE[g], $ = (id) => document.getElementById(id);
   if (st.q) { $("q").value = st.q; doNear(); }
   if (st.ana) { ["a", "b", "c"].forEach((id, i) => ($(id).value = st.ana[i])); doAna(); }
-  if (st.map) { $("set").value = st.map; last = "map"; render(); }
+  if (st.map) chooseMap(st.map);
   document.querySelectorAll(".focus").forEach((e) => e.classList.remove("focus"));
   if (st.on) $(st.on).classList.add("focus");
   $("gCount").textContent = `${g + 1} / ${GUIDE.length}`;

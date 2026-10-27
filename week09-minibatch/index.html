@@ -145,7 +145,10 @@ const SL = typeof SLIDES === "undefined" ? null : SLIDES;   // missing until dem
 const PANEL_ONLY = /[?&]panel\b/.test(location.search);
 if (PANEL_ONLY) document.body.classList.add("panelonly");
 const STEPS = LESSON.steps.concat([{ title: "The three runs, trained live", live: true }]);
-const N = STEPS.length;
+// the slides in order: the title slide, section slides (no panel, step null) and one slide per step
+const SEQ = SL && !PANEL_ONLY ? SL.pages : STEPS.map((s, i) => ({ step: i, title: s.title }));
+const N = SEQ.length;
+const cs = () => SEQ[cur].step == null ? { title: SEQ[cur].title, section: true } : STEPS[SEQ[cur].step];
 const NS = "http://www.w3.org/2000/svg";
 const MONO = "ui-monospace, Menlo, Consolas, 'DejaVu Sans Mono', monospace";
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
@@ -362,7 +365,7 @@ function showLive() {
 }
 function toggleTrain() {
   L.running = !L.running; document.getElementById("bTrain").firstChild.textContent = L.running ? "Pause" : "Train";
-  const tick = () => { if (!L.running || !STEPS[cur].live) return; liveTick(30); L.draw(); requestAnimationFrame(tick); };
+  const tick = () => { if (!L.running || !cs().live) return; liveTick(30); L.draw(); requestAnimationFrame(tick); };
   if (L.running) requestAnimationFrame(tick);
 }
 
@@ -375,13 +378,15 @@ function layout() {
   const W = Math.min(innerWidth, (innerHeight - navH) * 16 / 9), H = W * 9 / 16;
   st.style.top = (innerHeight - navH) / 2 + "px";
   st.style.width = W + "px"; st.style.height = H + "px"; st.style.fontSize = (W / 1920 * 16) + "px";
-  const sl = SL && SL.pages[cur];
+  const sl = SL && !PANEL_ONLY ? SL.pages[cur] : null;
   const box = sl ? sl.box : [0.46, 0.17, 0.5, 0.5 * 16 / 9 * PANEL_H / PANEL_W];   // fractions of the slide
+  slot.style.display = sl && !sl.box ? "none" : "block";
+  if (sl && !sl.box) { st.style.backgroundImage = `url("${SL.dir}${sl.img}")`; document.getElementById("fallback").style.display = "none"; return; }
   slot.style.left = box[0] * W + "px"; slot.style.top = box[1] * H + "px";
   slot.style.width = box[2] * W + "px"; slot.style.height = box[3] * H + "px";
   document.getElementById("panel").style.transform = `scale(${box[2] * W / PANEL_W})`;
   st.style.backgroundImage = sl ? `url("${SL.dir}${sl.img}")` : "none";
-  const fb = document.getElementById("fallback"); fb.style.display = sl ? "none" : "block"; fb.textContent = STEPS[cur].title;
+  const fb = document.getElementById("fallback"); fb.style.display = sl ? "none" : "block"; fb.textContent = cs().title;
 }
 function show(k) {
   cur = Math.max(0, Math.min(N - 1, k));
@@ -390,10 +395,11 @@ function show(k) {
   document.getElementById("pick").value = cur;
   document.getElementById("count").textContent = `${cur + 1} / ${N}`;
   layout();
-  if (STEPS[cur].live) showLive(); else showCell(cur);
+  if (cs().live) showLive(); else if (!cs().section) showCell(SEQ[cur].step);
 }
 const pick = document.getElementById("pick");
-STEPS.forEach((s, i) => { const o = document.createElement("option"); o.value = i; o.textContent = `${i + 1}. ${s.title}`; pick.appendChild(o); });
+SEQ.forEach((s, i) => { const o = document.createElement("option"); o.value = i;
+  o.textContent = s.step == null ? `${i + 1}. — ${s.title} —` : `${i + 1}. ${STEPS[s.step].title}`; pick.appendChild(o); });
 pick.onchange = () => show(+pick.value);
 document.getElementById("bBack").onclick = () => show(cur - 1);
 document.getElementById("bNext").onclick = () => show(cur + 1);
@@ -401,12 +407,12 @@ document.getElementById("bFull").onclick = () => document.fullscreenElement ? do
 addEventListener("keydown", (e) => {
   if (e.target.tagName === "SELECT" && !["ArrowLeft", "ArrowRight"].includes(e.key)) return;
   const k = e.key;
-  if (k === "ArrowRight" || k === "PageDown" || (k === " " && !STEPS[cur].live)) { show(cur + 1); e.preventDefault(); }
+  if (k === "ArrowRight" || k === "PageDown" || (k === " " && !cs().live)) { show(cur + 1); e.preventDefault(); }
   else if (k === "ArrowLeft" || k === "PageUp") { show(cur - 1); e.preventDefault(); }
   else if (k === "Home") show(0);
   else if (k === "End") show(N - 1);
   else if (k === "f" || k === "F") document.getElementById("bFull").click();
-  else if (STEPS[cur].live) {
+  else if (cs().live) {
     if (k === "t" || k === "T") toggleTrain();
     else if (k === "r" || k === "R") document.getElementById("bReset").click();
     else if (k === "x" || k === "X") { L.axis = (L.axis + 1) % AXES.length; document.getElementById("ax").value = L.axis; L.draw(); }

@@ -107,9 +107,13 @@ button:focus-visible, select:focus-visible { outline: 3px solid var(--line); out
 #nav {
   position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; gap: 8px; align-items: center;
   background: rgba(20, 22, 26, 0.86); color: #fff; padding: 6px 10px; border-radius: 10px; font-size: 14px;
-  opacity: 0; transition: opacity 0.25s; z-index: 5;
+  opacity: 0.55; transition: opacity 0.25s; z-index: 5;
 }
 #nav.show, #nav:hover, #nav:focus-within { opacity: 1; }
+body.nonav #nav { display: none; }
+#nav #count { font-variant-numeric: tabular-nums; padding: 0 4px; white-space: nowrap; }
+#nav button { white-space: nowrap; }
+@media (max-width: 600px) { #nav { gap: 5px; padding: 4px 6px; font-size: 13px; bottom: 6px; } #nav select { max-width: 46vw; } #bFull { display: none; } }
 #nav button { font: inherit; background: transparent; color: #fff; border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
 #nav select { font: inherit; max-width: 360px; background: #1d2026; color: #fff; border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 6px; padding: 3px 6px; }
 @media (prefers-reduced-motion: reduce) { #nav { transition: none; } }
@@ -124,6 +128,7 @@ button:focus-visible, select:focus-visible { outline: 3px solid var(--line); out
   <div id="slot"><div id="panel" aria-live="polite"></div></div>
 </div>
 <nav id="nav" aria-label="Steps">
+  <span id="count"></span>
   <button id="bBack" aria-label="Previous step">&larr;</button>
   <select id="pick" aria-label="Go to step"></select>
   <button id="bNext" aria-label="Next step">&rarr;</button>
@@ -379,7 +384,9 @@ let cur = 0;
 function layout() {
   const st = document.getElementById("stage"), slot = document.getElementById("slot");
   if (PANEL_ONLY) return;
-  const W = Math.min(innerWidth, innerHeight * 16 / 9), H = W * 9 / 16;
+  const navH = document.fullscreenElement || document.body.classList.contains("nonav") ? 0 : 52;
+  const W = Math.min(innerWidth, (innerHeight - navH) * 16 / 9), H = W * 9 / 16;
+  st.style.top = (innerHeight - navH) / 2 + "px";
   st.style.width = W + "px"; st.style.height = H + "px"; st.style.fontSize = (W / 1920 * 16) + "px";
   const sl = SL && SL.pages[cur];
   const box = sl ? sl.box : [0.46, 0.17, 0.5, 0.5 * 16 / 9 * PANEL_H / PANEL_W];   // fractions of the slide
@@ -394,6 +401,7 @@ function show(k) {
   if (L) L.running = false;
   if (!location.hash.includes("step=" + (cur + 1) + "&")) history.replaceState(null, "", location.search + "#step=" + (cur + 1));
   document.getElementById("pick").value = cur;
+  document.getElementById("count").textContent = `${cur + 1} / ${N}`;
   layout();
   if (STEPS[cur].live) showLive(); else showCell(cur);
 }
@@ -420,6 +428,20 @@ addEventListener("keydown", (e) => {
 });
 let navT;
 addEventListener("mousemove", (e) => { if (!e.movementX && !e.movementY) return; const n = document.getElementById("nav"); n.classList.add("show"); clearTimeout(navT); navT = setTimeout(() => n.classList.remove("show"), 1800); });
+// without a keyboard: tap the slide (its left quarter goes back), or swipe
+if (/[#&]nonav\b/.test(location.hash)) document.body.classList.add("nonav");   // for screenshots
+document.getElementById("stage").addEventListener("click", (e) => {
+  if (e.target.closest("#slot")) return;
+  const r = e.currentTarget.getBoundingClientRect();
+  show(e.clientX - r.left < r.width / 4 ? cur - 1 : cur + 1);
+});
+let touchX = null, touchY = null;
+addEventListener("touchstart", (e) => { touchX = e.touches[0].clientX; touchY = e.touches[0].clientY; }, { passive: true });
+addEventListener("touchend", (e) => {
+  if (touchX === null) return;
+  const dx = e.changedTouches[0].clientX - touchX, dy = e.changedTouches[0].clientY - touchY; touchX = null;
+  if (Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy)) show(dx < 0 ? cur + 1 : cur - 1);
+}, { passive: true });
 addEventListener("resize", () => show(cur));
 addEventListener("hashchange", () => { const m = location.hash.match(/step=(\d+)/); if (m && +m[1] - 1 !== cur) show(+m[1] - 1); });
 const m0 = location.hash.match(/step=(\d+)/);

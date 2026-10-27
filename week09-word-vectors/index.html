@@ -19,6 +19,9 @@
   seoul - korea + japan -> tokyo, 0.93), and the chosen words on their two directions of
   largest spread (PCA by power iteration). Data prepared from the Hugging Face copy
   fse/glove-wiki-gigaword-50.
+  Guided steps: the bar under the controls (Next / Back, the Right / Left arrow keys, or Page Down /
+  Page Up from a presentation clicker) fills in the controls step by step and says what to look at;
+  the last step leaves them to the reader. The address #step=N opens step N.
   One self-contained file: no server, no network, no libraries.
 -->
 <style>
@@ -202,6 +205,16 @@ footer a { color: var(--line); }
 input[type=text] { font: inherit; font-size: 15px; width: 7em; padding: 4px 6px; border-radius: 6px;
   border: 1px solid var(--btn-edge); background: var(--btn); color: var(--btn-ink); }
 @media (max-width: 900px) { #scene { min-height: 380px; } .bars { grid-template-columns: 1fr; } }
+/* the guided steps */
+.guide { display: flex; align-items: center; gap: 10px 14px; padding: 8px 20px; border-bottom: 1px solid var(--rule); }
+.guide .nav { display: flex; align-items: center; gap: 6px; flex: none; }
+.guide #gCount { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 14px; min-width: 4.2em; text-align: center; }
+.guide #gText { margin: 0; font-size: 17px; line-height: 1.35; text-wrap: pretty; }
+.guide #gText b { color: var(--line); margin-right: 6px; }
+.focus { outline: 3px solid var(--line); outline-offset: 1px; }
+@media (max-width: 900px) { .guide { flex-direction: column; align-items: flex-start; } }
+@media (min-width: 901px) and (max-height: 820px) { .guide { padding: 5px 16px; } .guide #gText { font-size: 15px; } }
+@media (min-width: 1800px) and (min-height: 1000px) { .guide #gText { font-size: 21px; } }
 </style>
 </head>
 <body>
@@ -238,15 +251,24 @@ input[type=text] { font: inherit; font-size: 15px; width: 7em; padding: 4px 6px;
   </div>
 </div>
 
+<div class="guide" role="region" aria-label="Guided steps">
+  <div class="nav">
+    <button id="gBack" aria-label="Previous step">&larr;</button>
+    <span id="gCount"></span>
+    <button id="gNext" class="primary" aria-label="Next step">Next &rarr;</button>
+  </div>
+  <p id="gText" aria-live="polite"></p>
+</div>
+
 <main>
   <section class="left">
-    <div class="card grow">
+    <div class="card grow" id="mapCard">
       <svg id="scene" role="img" aria-label="The chosen words drawn on the two directions of largest spread"></svg>
     </div>
     <div class="caption" id="caption" aria-live="polite"></div>
     <div class="bars">
-      <div class="card"><h2 id="nearTitle">Nearest words by cosine similarity</h2><svg id="near"></svg></div>
-      <div class="card"><h2 id="anaTitle">Analogy</h2><svg id="ana"></svg></div>
+      <div class="card" id="nearCard"><h2 id="nearTitle">Nearest words by cosine similarity</h2><svg id="near"></svg></div>
+      <div class="card" id="anaCard"><h2 id="anaTitle">Analogy</h2><svg id="ana"></svg></div>
     </div>
   </section>
 
@@ -255,7 +277,7 @@ input[type=text] { font: inherit; font-size: 15px; width: 7em; padding: 4px 6px;
       <h2>word_vectors.py</h2>
       <div class="code" id="code"></div>
     </div>
-    <div class="card">
+    <div class="card" id="varsCard">
       <h2>Variables</h2>
       <div class="vars" id="vars"></div>
     </div>
@@ -414,7 +436,7 @@ function caption() {
   if (last === "near") {
     c.textContent = nearErr || (nearRes.length ? `The words whose vectors point most nearly the same way as "${document.getElementById("q").value.trim()}": ${nearRes.slice(0, 4).map((x) => x.w).join(", ")}. Words used in similar contexts get similar vectors.` : "");
   } else if (last === "ana") {
-    c.textContent = anaErr || (anaRes ? `${anaRes.ws[0]} − ${anaRes.ws[1]} + ${anaRes.ws[2]} is closest to “${anaRes.top[0].w}” (cosine ${anaRes.top[0].s.toFixed(2)}): the difference between two words is roughly the same for pairs with the same relation (d2l 15.7).` : "");
+    c.textContent = anaErr || (anaRes ? `${anaRes.ws[0]} − ${anaRes.ws[1]} + ${anaRes.ws[2]} is closest to “${anaRes.top[0].w}” (cosine ${anaRes.top[0].s.toFixed(2)}), leaving out the three words themselves (d2l 15.7).` : "");
   } else {
     c.textContent = "Fifty numbers per word cannot be drawn, so we draw the two directions in which these words spread the most. Pairs with the same relation point roughly the same way.";
   }
@@ -442,7 +464,61 @@ document.getElementById("set").onchange = () => { last = "map"; render(); };
 ["q"].forEach((id) => document.getElementById(id).addEventListener("keydown", (x) => { if (x.key === "Enter") doNear(); }));
 ["a", "b", "c"].forEach((id) => document.getElementById(id).addEventListener("keydown", (x) => { if (x.key === "Enter") doAna(); }));
 window.addEventListener("resize", render);
+
+// ---- the guided steps: each step fills in the controls, runs them, and says what to look at ----
+const GUIDE = [
+  { t: "One vector per word", q: "cat", on: "varsCard",
+    say: "Each of the 9,442 words has a vector of 50 numbers, learned from the words around it in 6 billion words of text. Variables shows the first six numbers of \u201ccat\u201d; a one-hot vector would need 9,442 numbers." },
+  { t: "The nearest words to \u201ccat\u201d", q: "cat", on: "nearCard",
+    say: "The bars are the eight words whose vectors point most nearly the same way as \u201ccat\u201d. The score is the cosine of the angle between the vectors: 1 is the same direction. \u201cdog\u201d scores 0.92, since cats and dogs appear in similar sentences." },
+  { t: "The nearest words to \u201ccomputer\u201d", q: "computer", on: "nearCard",
+    say: "computers, software, technology: words that are used in the same kind of text." },
+  { t: "The nearest words to \u201cseoul\u201d", q: "seoul", on: "nearCard",
+    say: "Other capitals and \u201ckorea\u201d itself. Nearby words share contexts, not always a meaning: \u201cbeijing\u201d does not mean \u201cseoul\u201d." },
+  { t: "The nearest words to \u201cmonday\u201d", q: "monday", on: "nearCard",
+    say: "The other days of the week score 0.99 to 1.00: they are used in almost the same sentences." },
+  { t: "An analogy: king \u2212 man + woman", ana: ["king", "man", "woman"], on: "anaCard",
+    say: "We subtract and add the vectors. The word nearest to king \u2212 man + woman, leaving out these three words, is \u201cqueen\u201d (0.86)." },
+  { t: "An analogy: seoul \u2212 korea + japan", ana: ["seoul", "korea", "japan"], on: "anaCard",
+    say: "\u201ctokyo\u201d (0.93): the step from a country to its capital is roughly the same vector for each country." },
+  { t: "An analogy: paris \u2212 france + italy", ana: ["paris", "france", "italy"], on: "anaCard",
+    say: "\u201crome\u201d (0.84), the same relation for another pair." },
+  { t: "An analogy that fails", ana: ["walked", "walk", "swim"], on: "anaCard",
+    say: "walked \u2212 walk + swim should give \u201cswam\u201d, but the nearest word is \u201craced\u201d. Analogies work for some relations and not for others." },
+  { t: "A map of countries and capitals", map: "caps", on: "mapCard",
+    say: "Fifty numbers cannot be drawn, so we draw the two directions in which these 16 words spread the most (PCA). Countries are blue and capitals red; the lines that join each pair point roughly the same way." },
+  { t: "A map of royalty and family", map: "royal", on: "mapCard",
+    say: "Male words are blue and female words red. The lines from each male word to its female word are roughly parallel." },
+  { t: "A map of verbs and their past tense", map: "verbs", on: "mapCard",
+    say: "Present forms are blue and past forms red. The lines are less regular than for the countries, as the failed analogy suggested." },
+  { t: "Try your own words", on: null,
+    say: "Type a word and press Enter, change the three words of the analogy and press Analogy, or choose another map. A word must be among the 9,442 most frequent words." },
+];
+let g = 0;
+function guide(k) {
+  g = Math.max(0, Math.min(GUIDE.length - 1, k));
+  const st = GUIDE[g], $ = (id) => document.getElementById(id);
+  if (st.q) { $("q").value = st.q; doNear(); }
+  if (st.ana) { ["a", "b", "c"].forEach((id, i) => ($(id).value = st.ana[i])); doAna(); }
+  if (st.map) { $("set").value = st.map; last = "map"; render(); }
+  document.querySelectorAll(".focus").forEach((e) => e.classList.remove("focus"));
+  if (st.on) $(st.on).classList.add("focus");
+  $("gCount").textContent = `${g + 1} / ${GUIDE.length}`;
+  $("gText").innerHTML = ""; const b = document.createElement("b"); b.textContent = st.t;
+  $("gText").append(b, document.createTextNode(st.say));
+  $("gBack").disabled = g === 0; $("gNext").disabled = g === GUIDE.length - 1;
+  history.replaceState(null, "", "#step=" + (g + 1));
+}
+document.getElementById("gBack").onclick = () => guide(g - 1);
+document.getElementById("gNext").onclick = () => guide(g + 1);
+addEventListener("keydown", (e) => {
+  if (["INPUT", "SELECT"].includes(e.target.tagName)) return;   // typing in a box
+  if (e.key === "ArrowRight" || e.key === "PageDown") { guide(g + 1); e.preventDefault(); }
+  else if (e.key === "ArrowLeft" || e.key === "PageUp") { guide(g - 1); e.preventDefault(); }
+});
 doAna(); doNear();
+const m0 = location.hash.match(/step=(\d+)/);
+guide(m0 ? +m0[1] - 1 : 0);
 </script>
 </body>
 </html>

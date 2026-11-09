@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The KV Cache</title>
+<meta name="description" content="KV-cache demo: a small character-level transformer with A4's architecture writes a story twice, once by running the model on the whole input at every step and once with a cache of keys and values; the work, the time per step, the difference between the outputs, and the size of the cache.">
+<!--
+  (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
+  licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
+  Commercial use, closed-source use, or any other licensing: by permission,
+  jangkj@hongik.ac.kr.
+
+  KV-cache demo. A character-level transformer with A4's architecture (RMSNorm, RoPE on (2i, 2i+1) pairs,
+  multi-head attention without biases, SwiGLU, pre-norm blocks; d_model 64, 3 layers, 4 heads, 154k parameters),
+  trained on TinyStories (weights.js, from mlfoundations lectures/current/figures/make_demo_wk13_kvcache.py).
+  Two decode loops run side by side on the same prompt: without a cache (the model on the whole input at every
+  step) and with a cache (prefill, then one token per step). Two common bugs can be switched on.
+  Keys: Right arrow = one token, G = 50 tokens, R = reset.
+-->
+<style>
+:root {
+  --bg: #ffffff; --panel: #f4f5f7; --ink: #1a1a1a; --muted: #5b6068; --rule: #d9dce1; --grid: #eceef1;
+  --line: #2f6fbf; --line2: #b7791f; --err: #c00000; --pos: #1e8e5a; --hl: #fff1c2; --hl-ink: #1a1a1a;
+  --btn: #ffffff; --btn-ink: #1a1a1a; --btn-edge: #b9bec6; --btn-primary: #2f6fbf; --btn-primary-ink: #ffffff;
+  --code-bg: #fbfbfc;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c; --grid: #222931;
+    --line: #6ea8ff; --line2: #e0b04f; --err: #ff6b6b; --pos: #4fcf8e; --hl: #3a3320; --hl-ink: #fff4d6;
+    --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d; --btn-primary: #4a86d8; --btn-primary-ink: #0b0e12;
+    --code-bg: #151a20;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c; --grid: #222931;
+  --line: #6ea8ff; --line2: #e0b04f; --err: #ff6b6b; --pos: #4fcf8e; --hl: #3a3320; --hl-ink: #fff4d6;
+  --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d; --btn-primary: #4a86d8; --btn-primary-ink: #0b0e12;
+  --code-bg: #151a20;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; padding: 10px 20px 6px;
+  border-bottom: 1px solid var(--rule); }
+header h1 { font-size: 22px; margin: 0; font-weight: 650; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); font-size: 14px; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 8px 20px;
+  border-bottom: 1px solid var(--rule); background: var(--panel); }
+.controls .group { display: flex; align-items: center; gap: 6px; }
+.controls .sep { width: 1px; align-self: stretch; background: var(--rule); margin: 0 4px; }
+label { font-size: 14px; color: var(--muted); }
+input[type=text] { font: 15px ui-monospace, Menlo, Consolas, monospace; width: 22em; max-width: 60vw;
+  background: var(--btn); color: var(--ink); border: 1px solid var(--btn-edge); border-radius: 6px; padding: 5px 8px; }
+button, input[type=range] { font: inherit; font-size: 15px; }
+button { background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge); border-radius: 6px;
+  padding: 5px 10px; cursor: pointer; white-space: nowrap; }
+button.primary { background: var(--btn-primary); color: var(--btn-primary-ink); border-color: var(--btn-primary); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
+main { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 10px 20px 12px; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 10px 16px; } }
+.card { background: var(--bg); border: 1px solid var(--rule); border-radius: 8px; padding: 8px 12px; min-width: 0; }
+.card h2 { font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; font-weight: 650; }
+.wide { grid-column: 1 / -1; }
+.text { font: 16px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-word;
+  min-height: 4.6em; background: var(--code-bg); border-radius: 6px; padding: 6px 8px; }
+.text .p { color: var(--muted); }
+.text .new { background: var(--hl); color: var(--hl-ink); }
+.text .bad { color: var(--err); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-variant-numeric: tabular-nums; }
+@media (max-width: 900px) { .stats { grid-template-columns: 1fr 1fr; } }
+.stat { background: var(--panel); border-radius: 6px; padding: 6px 8px; }
+.stat .k { font-size: 12.5px; color: var(--muted); }
+.stat .v { font-size: 20px; font-weight: 650; }
+.stat .v.ok { color: var(--pos); } .stat .v.no { color: var(--err); }
+canvas { width: 100%; height: 220px; display: block; }
+.legend { display: flex; gap: 14px; font-size: 13px; color: var(--muted); }
+.legend i { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin-right: 5px; }
+.layers { display: grid; gap: 4px; }
+.layer { display: grid; grid-template-columns: 5.5em 1fr; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.strip { height: 16px; background: var(--grid); border-radius: 3px; position: relative; overflow: hidden; }
+.strip > div { position: absolute; top: 0; bottom: 0; left: 0; background: var(--line); opacity: 0.75; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 14.5px; }
+th, td { text-align: right; padding: 3px 6px; border-bottom: 1px solid var(--rule); }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-weight: 600; font-size: 13px; }
+.tablewrap { overflow-x: auto; }
+.note { color: var(--muted); font-size: 13.5px; margin: 6px 0 0; }
+.calc { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-bottom: 6px; font-size: 14px; }
+.calc input[type=range] { width: 150px; }
+footer { padding: 4px 20px 6px; border-top: 1px solid var(--rule); background: var(--panel); font-size: 12.5px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>The KV Cache</h1>
+  <p>The same model writes the same story twice: without a cache, and with one.</p>
+</header>
+<div class="controls">
+  <div class="group"><label for="prompt">Prompt</label><input id="prompt" type="text" value="Once upon a time, there was a little"></div>
+  <div class="group">
+    <button id="b1" class="primary" title="Right arrow">One token</button>
+    <button id="b50" title="G">50 tokens</button>
+    <button id="breset" title="R">Reset</button>
+  </div>
+  <span class="sep"></span>
+  <div class="group"><label for="temp">Temperature</label><input id="temp" type="range" min="0" max="1.2" step="0.1" value="0"><span id="tempv">0 (greedy)</span></div>
+  <span class="sep"></span>
+  <div class="group"><label>Bug in the cached loop</label>
+    <label><input type="radio" name="bug" value="none" checked> none</label>
+    <label><input type="radio" name="bug" value="pos"> new token at position 0</label>
+    <label><input type="radio" name="bug" value="unrot"> keys cached before RoPE</label>
+  </div>
+</div>
+<main>
+  <section class="card wide">
+    <div class="two">
+      <div><h2>Without a cache: the model on the whole input at every step</h2><div id="tA" class="text"></div></div>
+      <div><h2>With a cache: prefill, then one token per step</h2><div id="tB" class="text"></div></div>
+    </div>
+    <div class="stats" style="margin-top:8px">
+      <div class="stat"><div class="k">Length (prompt + generated)</div><div class="v" id="sLen">0</div></div>
+      <div class="stat"><div class="k">Largest |logit difference|, this step</div><div class="v" id="sDiff">–</div></div>
+      <div class="stat"><div class="k">Same next token, all steps so far</div><div class="v" id="sSame">–</div></div>
+      <div class="stat"><div class="k">Keys and values computed: without / with</div><div class="v" id="sKV">–</div></div>
+    </div>
+  </section>
+  <section class="card">
+    <h2>Keys and values computed, total</h2>
+    <div class="legend"><span><i style="background:var(--err)"></i>without a cache</span><span><i style="background:var(--line)"></i>with a cache</span></div>
+    <canvas id="cWork"></canvas>
+    <p class="note">One key and one value per token per layer. Without a cache, step t computes them for all t tokens again, so the total grows with the square of the length; with a cache, only for the new token.</p>
+  </section>
+  <section class="card">
+    <h2>Time per step (this browser)</h2>
+    <div class="legend"><span><i style="background:var(--err)"></i>without a cache</span><span><i style="background:var(--line)"></i>with a cache</span></div>
+    <canvas id="cTime"></canvas>
+    <p class="note" id="timeNote">Measured with performance.now(); the first steps include start-up noise.</p>
+  </section>
+  <section class="card">
+    <h2>What the cache holds</h2>
+    <div class="layers" id="layers"></div>
+    <p class="note" id="cacheNote"></p>
+  </section>
+  <section class="card">
+    <h2>The size of the cache</h2>
+    <div class="calc">
+      <label for="len">Length</label><input id="len" type="range" min="7" max="17" step="1" value="12"><span id="lenv"></span>
+      <label for="bat">Sequences</label><input id="bat" type="range" min="0" max="7" step="1" value="0"><span id="batv"></span>
+    </div>
+    <div class="tablewrap"><table id="sizes"></table></div>
+    <p class="note">Per token: 2 (key and value) × layers × KV heads × d<sub>head</sub> × bytes per number.</p>
+  </section>
+</main>
+<footer>Keys: → one token · G 50 tokens · R reset. Model: 154k parameters, A4's architecture, trained on TinyStories characters. © 2026 Kuk Jin Jang, Hongik University · CC BY-NC-SA 4.0</footer>
+<script src="weights.js"></script>
+<script>
+"use strict";
+// ---------------------------------------------------------------- the model
+const C = MODEL.chars, D = MODEL.d_model, NL = MODEL.n_layers, NH = MODEL.n_heads, DH = D / NH, DFF = MODEL.d_ff;
+const MAXLEN = MODEL.max_len;
+const raw = Uint8Array.from(atob(WEIGHTS_B64), c => c.charCodeAt(0));
+const all = new Float32Array(raw.buffer);
+const P = {}; { let o = 0; MODEL.order.forEach((k, i) => { const n = MODEL.shapes[i].reduce((a, b) => a * b, 1); P[k] = all.subarray(o, o + n); o += n; }); }
+const V = C.length, stoi = {}; [...C].forEach((c, i) => stoi[c] = i);
+const lin = (W, x, nout) => { const nin = x.length, y = new Float64Array(nout);
+  for (let o = 0; o < nout; o++) { let s = 0; const r = o * nin; for (let i = 0; i < nin; i++) s += W[r + i] * x[i]; y[o] = s; } return y; };
+const rms = (x, g) => { let s = 0; for (const v of x) s += v * v; const r = Math.sqrt(s / x.length + 1e-5);
+  return Float64Array.from(x, (v, i) => v / r * g[i]); };
+const INV = Array.from({ length: DH / 2 }, (_, i) => Math.pow(10000, -2 * i / DH));
+function rope(v, pos) {            // pairs (2i, 2i+1) inside each head, angle pos * theta_i
+  const out = new Float64Array(D);
+  for (let h = 0; h < NH; h++) for (let i = 0; i < DH / 2; i++) {
+    const a = pos * INV[i], c = Math.cos(a), s = Math.sin(a), j = h * DH + 2 * i;
+    out[j] = v[j] * c - v[j + 1] * s; out[j + 1] = v[j] * s + v[j + 1] * c; }
+  return out;
+}
+const newCache = () => Array.from({ length: NL }, () => ({ k: [], v: [] }));
+// Runs the tokens `ids` at positions start, start+1, ... with the keys and values of earlier positions in `cache`
+// (appended to). Returns the logits of the last token. The same code serves both loops: without a cache it is called
+// on the whole input with an empty cache; with a cache, once on the prompt (prefill) and then on one token per step.
+function forward(ids, start, cache, bug, count) {
+  let xs = ids.map(t => Float64Array.from(P["embed.weight"].subarray(t * D, (t + 1) * D)));
+  for (let l = 0; l < NL; l++) {
+    const b = "blocks." + l + ".", cl = cache[l];
+    const hs = xs.map(x => rms(x, P[b + "attn_norm.weight"]));
+    const qs = [];
+    hs.forEach((h, j) => {
+      const pos = bug === "pos" ? j : start + j;
+      const k = lin(P[b + "attn.k_proj.weight"], h, D), v = lin(P[b + "attn.v_proj.weight"], h, D);
+      qs.push(rope(lin(P[b + "attn.q_proj.weight"], h, D), pos));
+      cl.k.push(bug === "unrot" ? k : rope(k, pos)); cl.v.push(v); count.kv += 1;
+    });
+    xs = xs.map((x, j) => {
+      const q = qs[j], T = start + j + 1;                   // causal: keys 0..T-1
+      const ctx = new Float64Array(D);
+      for (let h = 0; h < NH; h++) {
+        const o = h * DH, sc = new Float64Array(T); let mx = -Infinity;
+        for (let t = 0; t < T; t++) {
+          const kk = cl.k[t];
+          let s = 0; for (let i = 0; i < DH; i++) s += q[o + i] * kk[o + i]; s /= Math.sqrt(DH); sc[t] = s; if (s > mx) mx = s; }
+        count.scores += T;
+        let z = 0; for (let t = 0; t < T; t++) { sc[t] = Math.exp(sc[t] - mx); z += sc[t]; }
+        for (let t = 0; t < T; t++) { const w = sc[t] / z, vv = cl.v[t]; for (let i = 0; i < DH; i++) ctx[o + i] += w * vv[o + i]; }
+      }
+      const a = lin(P[b + "attn.o_proj.weight"], ctx, D), y = Float64Array.from(x, (v, i) => v + a[i]);
+      const h2 = rms(y, P[b + "ffn_norm.weight"]);
+      const z1 = lin(P[b + "ffn.w1.weight"], h2, DFF), z3 = lin(P[b + "ffn.w3.weight"], h2, DFF);
+      const g = Float64Array.from(z1, (u, i) => u / (1 + Math.exp(-u)) * z3[i]);
+      const f = lin(P[b + "ffn.w2.weight"], g, D);
+      return Float64Array.from(y, (v, i) => v + f[i]);
+    });
+  }
+  return lin(P["lm_head.weight"], rms(xs[xs.length - 1], P["final_norm.weight"]), V);
+}
+// ---------------------------------------------------------------- the two loops
+let S;
+function rng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+function pick(logits, temp, u) {
+  if (temp === 0) { let b = 0; for (let i = 1; i < logits.length; i++) if (logits[i] > logits[b]) b = i; return b; }
+  let mx = -Infinity; for (const v of logits) mx = Math.max(mx, v / temp);
+  const p = Array.from(logits, v => Math.exp(v / temp - mx)); const z = p.reduce((a, b) => a + b, 0);
+  let c = 0; for (let i = 0; i < p.length; i++) { c += p[i] / z; if (u < c) return i; } return p.length - 1;
+}
+function reset() {
+  const txt = [...document.getElementById("prompt").value].filter(c => c in stoi).join("") || "Once";
+  const bug = document.querySelector("input[name=bug]:checked").value;
+  S = { prompt: txt, a: [...txt].map(c => stoi[c]), b: [...txt].map(c => stoi[c]), cache: newCache(), bug,
+        rand: rng(7), kvA: 0, kvB: 0, workA: [], workB: [], timeA: [], timeB: [], same: true, diff: null, steps: 0 };
+  const cnt = { kv: 0, scores: 0 }; const t0 = performance.now();
+  S.nextB = forward(S.b, 0, S.cache, bug === "pos" ? "none" : bug, cnt);   // prefill: positions are right in one pass
+  S.prefillMs = performance.now() - t0; S.kvB = cnt.kv;
+  draw();
+}
+function step() {
+  if (S.a.length >= MAXLEN) return false;
+  const temp = +document.getElementById("temp").value, u = S.rand();
+  const ca = { kv: 0, scores: 0 }; let t0 = performance.now();
+  const la = forward(S.a, 0, newCache(), "none", ca); const ta = performance.now() - t0;
+  const lb = S.nextB;
+  let d = 0; for (let i = 0; i < V; i++) d = Math.max(d, Math.abs(la[i] - lb[i])); S.diff = d;
+  const na = pick(la, temp, u), nb = pick(lb, temp, u); if (na !== nb) S.same = false;
+  S.a.push(na); S.b.push(nb);
+  const cb = { kv: 0, scores: 0 }; t0 = performance.now();
+  S.nextB = forward([nb], S.b.length - 1, S.cache, S.bug, cb); const tb = performance.now() - t0;
+  S.kvA += ca.kv; S.kvB += cb.kv; S.steps++;
+  S.workA.push(S.kvA); S.workB.push(S.kvB); S.timeA.push(ta); S.timeB.push(tb);
+  return true;
+}
+// ---------------------------------------------------------------- drawing
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function show(el, ids, other) {
+  const p = S.prompt.length; el.innerHTML = "";
+  const sp = (cls, s) => { const e = document.createElement("span"); if (cls) e.className = cls; e.textContent = s; el.appendChild(e); };
+  sp("p", S.prompt);
+  let run = "", runCls = null;
+  for (let i = p; i < ids.length; i++) {
+    const cls = (other && other[i] !== ids[i]) ? "bad" : (i === ids.length - 1 ? "new" : "");
+    if (cls !== runCls && run) { sp(runCls, run); run = ""; }
+    runCls = cls; run += C[ids[i]];
+  }
+  if (run) sp(runCls, run);
+}
+function plot(cv, A, B, fmt) {
+  const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  cv.width = r.width * dpr; cv.height = r.height * dpr; const g = cv.getContext("2d"); g.scale(dpr, dpr);
+  const W = r.width, H = r.height, L = 44, R = 8, T = 8, Bm = 22;
+  g.fillStyle = css("--bg"); g.fillRect(0, 0, W, H);
+  const n = Math.max(A.length, 2), top = Math.max(1e-9, ...A, ...B);
+  g.strokeStyle = css("--grid"); g.fillStyle = css("--muted"); g.font = "11px system-ui"; g.lineWidth = 1;
+  for (let k = 0; k <= 4; k++) { const y = T + (H - T - Bm) * (1 - k / 4); g.beginPath(); g.moveTo(L, y); g.lineTo(W - R, y); g.stroke();
+    g.textAlign = "right"; g.fillText(fmt(top * k / 4), L - 4, y + 4); }
+  g.textAlign = "center"; g.fillText("step", (L + W - R) / 2, H - 5);
+  g.textAlign = "left"; g.fillText("1", L, H - 5); g.textAlign = "right"; g.fillText(String(n), W - R, H - 5);
+  const line = (Y, col) => { if (!Y.length) return; g.strokeStyle = col; g.lineWidth = 2; g.beginPath();
+    Y.forEach((v, i) => { const x = L + (W - L - R) * (n === 1 ? 0 : i / (n - 1)), y = T + (H - T - Bm) * (1 - v / top);
+      i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); };
+  line(A, css("--err")); line(B, css("--line"));
+}
+const KB = b => b < 1024 ? b.toFixed(0) + " B" : b < 1048576 ? (b / 1024).toFixed(b < 10240 ? 1 : 0) + " KiB"
+  : b < 1073741824 ? (b / 1048576).toFixed(b < 10485760 ? 1 : 0) + " MiB" : (b / 1073741824).toFixed(1) + " GiB";
+const MODELS = [
+  ["This demo (float64 in the browser)", 3, 4, 16, 8],
+  ["A4 / capstone model, d 256, 6 layers (bf16)", 6, 4, 64, 2],
+  ["Llama-2-7B (fp16)", 32, 32, 128, 2],
+  ["Llama-2-70B, 8 KV heads (fp16)", 80, 8, 128, 2],
+];
+function sizes() {
+  const len = 2 ** +document.getElementById("len").value, bat = 2 ** +document.getElementById("bat").value;
+  document.getElementById("lenv").textContent = len.toLocaleString() + " tokens";
+  document.getElementById("batv").textContent = bat.toLocaleString();
+  let h = "<tr><th>Model</th><th>per token</th><th>one sequence</th><th>all sequences</th></tr>";
+  for (const [n, l, kvh, dh, by] of MODELS) { const per = 2 * l * kvh * dh * by;
+    h += `<tr><td>${n}</td><td>${KB(per)}</td><td>${KB(per * len)}</td><td>${KB(per * len * bat)}</td></tr>`; }
+  document.getElementById("sizes").innerHTML = h;
+}
+function draw() {
+  show(document.getElementById("tA"), S.a, null); show(document.getElementById("tB"), S.b, S.a);
+  document.getElementById("sLen").textContent = S.a.length + (S.a.length >= MAXLEN ? " (max)" : "");
+  const sd = document.getElementById("sDiff"); sd.textContent = S.diff === null ? "–" : S.diff === 0 ? "0" : S.diff.toExponential(1);
+  sd.className = "v " + (S.diff === null ? "" : S.diff < 1e-9 ? "ok" : "no");
+  const ss = document.getElementById("sSame"); ss.textContent = S.steps ? (S.same ? "yes" : "no") : "–"; ss.className = "v " + (S.steps ? (S.same ? "ok" : "no") : "");
+  document.getElementById("sKV").textContent = S.kvA.toLocaleString() + " / " + S.kvB.toLocaleString();
+  plot(document.getElementById("cWork"), S.workA, S.workB, v => v >= 1000 ? (v / 1000).toFixed(0) + "k" : v.toFixed(0));
+  plot(document.getElementById("cTime"), S.timeA, S.timeB, v => v.toFixed(v < 10 ? 1 : 0) + " ms");
+  if (S.timeA.length > 5) { const k = Math.min(10, S.timeA.length), avg = a => a.slice(-k).reduce((x, y) => x + y, 0) / k;
+    document.getElementById("timeNote").textContent = `Last ${k} steps: ${avg(S.timeA).toFixed(1)} ms without a cache, ${avg(S.timeB).toFixed(2)} ms with one (${(avg(S.timeA) / avg(S.timeB)).toFixed(0)}× faster) at length ${S.a.length}. Prefill of the prompt: ${S.prefillMs.toFixed(1)} ms.`; }
+  const lay = document.getElementById("layers"); lay.innerHTML = "";
+  for (let l = 0; l < NL; l++) { const n = S.cache[l].k.length;
+    lay.insertAdjacentHTML("beforeend", `<div class="layer"><span>layer ${l + 1}: ${n}</span><div class="strip"><div style="width:${100 * n / MAXLEN}%"></div></div></div>`); }
+  const per = 2 * NL * D * 8;
+  document.getElementById("cacheNote").textContent = `Each layer keeps one key and one value (${D} numbers each, all ${NH} heads) per token: ${(S.cache[0].k.length).toLocaleString()} tokens × ${NL} layers × 2 × ${D} = ${(S.cache[0].k.length * NL * 2 * D).toLocaleString()} numbers, ${KB(S.cache[0].k.length * per)} in float64. The bar is the share of the ${MAXLEN}-token maximum.`;
+}
+// ---------------------------------------------------------------- controls
+let busy = false;
+async function go(n) {             // one step per frame, so the page redraws while it runs
+  if (busy) return; busy = true;
+  try { for (let i = 0; i < n; i++) { if (!step()) break; draw(); await new Promise(r => requestAnimationFrame(r)); } }
+  finally { busy = false; draw(); }
+}
+document.getElementById("b1").onclick = () => go(1);
+document.getElementById("b50").onclick = () => go(50);
+document.getElementById("breset").onclick = () => { if (!busy) reset(); };
+document.getElementById("prompt").onchange = reset;
+document.querySelectorAll("input[name=bug]").forEach(e => e.onchange = reset);
+const tv = () => { const t = +document.getElementById("temp").value; document.getElementById("tempv").textContent = t === 0 ? "0 (greedy)" : t.toFixed(1); };
+document.getElementById("temp").oninput = tv;
+document.getElementById("len").oninput = sizes; document.getElementById("bat").oninput = sizes;
+document.addEventListener("keydown", e => { if (e.target.tagName === "INPUT" && e.target.type === "text") return;
+  if (e.key === "ArrowRight") go(1); else if (e.key === "g" || e.key === "G") go(50); else if (e.key === "r" || e.key === "R") reset(); });
+window.addEventListener("resize", () => S && draw());
+tv(); sizes(); reset();
+</script>
+</body>
+</html>

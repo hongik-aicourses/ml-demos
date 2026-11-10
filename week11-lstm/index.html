@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remembering the First Letter</title>
+<meta name="description" content="LSTM demo: a plain RNN and an LSTM with 16 hidden units trained side by side to remember the first letter of a sequence after a delay of noise letters; the test loss of both, the gradient that reaches each step, and the LSTM's forget gate and memory cell on one example.">
+<!--
+  (c) 2026 Kuk Jin Jang, Hongik University. This page, code and text alike, is
+  licensed under CC BY-NC-SA 4.0 (https://creativecommons.org/licenses/by-nc-sa/4.0/).
+  Commercial use, closed-source use, or any other licensing: by permission,
+  jangkj@hongik.ac.kr.
+
+  Week 11, Hour 2 demo (Wed 11 Nov) --- a plain RNN and an LSTM on a task that needs a long memory.
+  Each sequence is one of the letters a, b, c, d, then `delay` letters drawn at random from e-l, then "?";
+  the answer at "?" is the first letter. Only the prediction at "?" is trained, so the only signal reaches the first
+  letter by backpropagation through every step of the delay.
+  RNN: h_t = tanh(x_t W_xh + h_{t-1} W_hh + b_h) (d2l.ai 9.4.2).
+  LSTM: I, F, O = sigmoid(x_t W_x* + h_{t-1} W_h* + b_*), C~ = tanh(...), C_t = F * C_{t-1} + I * C~,
+  H_t = O * tanh(C_t) (d2l.ai 10.1.1). Both: 16 hidden units, one output layer for the four answers, Adam with
+  learning rate 0.01, minibatch of 32, gradient clipping at 1, the same minibatches.
+  Measured on this page's own runs (seed 1, the step at which 95% of the 200 test sequences are right, within 800 steps):
+  delay 5: both at step 25; delay 10: RNN 50, LSTM 25; delay 20: LSTM 50, RNN never (49%: it tells two letters
+  apart); delay 30: LSTM 175, RNN 725; delay 20 with forget-gate bias 0: neither (LSTM 27%), bias 1: LSTM 50.
+  Over 5 seeds at delay 20, bias 2: LSTM 5 of 5, RNN 1 of 5. The page computes the gradients itself (checked against
+  finite differences).
+  Keys: Space = train / pause, N = one step, R = reset, E = new example.
+  One self-contained file: no server, no network, no libraries.
+-->
+<style>
+:root {
+  --bg: #ffffff;
+  --panel: #f4f5f7;
+  --ink: #1a1a1a;
+  --muted: #5b6068;
+  --rule: #d9dce1;
+  --grid: #eceef1;
+  --line: #2f6fbf;
+  --err: #c00000;
+  --pos: #1e8e5a;
+  --exact: #b7791f;
+  --hl: #fff1c2;
+  --hl-ink: #1a1a1a;
+  --btn: #ffffff;
+  --btn-ink: #1a1a1a;
+  --btn-edge: #b9bec6;
+  --btn-primary: #2f6fbf;
+  --btn-primary-ink: #ffffff;
+  --code-bg: #fbfbfc;
+  --comment: #8a8f98;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111418;
+    --panel: #1a1f26;
+    --ink: #e8eaed;
+    --muted: #9aa3ae;
+    --rule: #2c333c;
+    --grid: #222931;
+    --line: #6ea8ff;
+    --err: #ff6b6b;
+    --pos: #4fcf8e;
+    --exact: #e0b04f;
+    --hl: #3a3320;
+    --hl-ink: #fff4d6;
+    --btn: #1f252d;
+    --btn-ink: #e8eaed;
+    --btn-edge: #3a424d;
+    --btn-primary: #4a86d8;
+    --btn-primary-ink: #0b0e12;
+    --code-bg: #151a20;
+    --comment: #7d8793;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111418; --panel: #1a1f26; --ink: #e8eaed; --muted: #9aa3ae; --rule: #2c333c;
+  --grid: #222931; --line: #6ea8ff; --err: #ff6b6b; --pos: #4fcf8e; --exact: #e0b04f;
+  --hl: #3a3320; --hl-ink: #fff4d6; --btn: #1f252d; --btn-ink: #e8eaed; --btn-edge: #3a424d;
+  --btn-primary: #4a86d8; --btn-primary-ink: #0b0e12; --code-bg: #151a20; --comment: #7d8793;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+}
+header {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px;
+  padding: 10px 20px 6px; border-bottom: 1px solid var(--rule);
+}
+header h1 { font-size: 22px; margin: 0; font-weight: 650; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); font-size: 14px; }
+.controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 8px 20px; border-bottom: 1px solid var(--rule); background: var(--panel);
+}
+.controls .group { display: flex; align-items: center; gap: 6px; }
+.controls .sep { width: 1px; align-self: stretch; background: var(--rule); margin: 0 4px; }
+label { font-size: 14px; color: var(--muted); }
+select, button { font: inherit; font-size: 15px; }
+select {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 8px;
+}
+button {
+  background: var(--btn); color: var(--btn-ink); border: 1px solid var(--btn-edge);
+  border-radius: 6px; padding: 5px 10px; cursor: pointer; white-space: nowrap;
+}
+button.primary { background: var(--btn-primary); color: var(--btn-primary-ink); border-color: var(--btn-primary); }
+button:hover { filter: brightness(0.97); }
+button:focus-visible, select:focus-visible { outline: 3px solid var(--line); outline-offset: 2px; }
+kbd {
+  font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; color: inherit; opacity: 0.75;
+  border: 1px solid var(--rule); border-radius: 4px; padding: 0 4px; margin-left: 4px;
+}
+main {
+  display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 12px; padding: 10px 20px 12px;
+}
+@media (min-width: 901px) and (min-height: 600px) {
+  body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  main { flex: 1; min-height: 0; }
+}
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+@media (max-width: 1440px) { kbd { display: none; } }
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+.card h2 { font-size: 15px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.left, .right { display: grid; gap: 10px; min-width: 0; min-height: 0; }
+.left { grid-template-rows: minmax(0, 1fr) auto minmax(0, 0.8fr); }
+.right { grid-template-rows: minmax(0, 1fr) auto auto; }
+.card.grow { display: flex; flex-direction: column; min-height: 0; }
+.card.grow svg { flex: 1; min-height: 150px; height: 100%; }
+svg { display: block; width: 100%; }
+.caption {
+  font-size: 18px; min-height: 3.1em; padding: 8px 14px;
+  background: var(--bg); border: 1px solid var(--rule); border-left: 4px solid var(--line);
+  border-radius: 8px;
+}
+.code {
+  font: 14px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  background: var(--code-bg); border: 1px solid var(--rule); border-radius: 8px;
+  padding: 6px 10px; overflow-x: auto; white-space: pre; margin: 0;
+}
+.code .c { color: var(--comment); }
+.code .r { color: var(--line); font-weight: 650; }
+.code .l { color: var(--err); font-weight: 650; }
+.vars { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; font-variant-numeric: tabular-nums; }
+.vars .v { display: flex; justify-content: space-between; padding: 2px 4px; border-bottom: 1px solid var(--rule);
+  font: 15px ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.vars .v .k { color: var(--muted); }
+.vars .v .val { white-space: nowrap; margin-left: 8px; }
+.vars .v.wide { grid-column: 1 / -1; }
+footer {
+  padding: 4px 20px 6px; border-top: 1px solid var(--rule); background: var(--panel);
+  font-size: 12.5px; color: var(--muted);
+}
+footer a { color: var(--line); }
+@media (min-width: 901px) and (max-height: 820px) {
+  header { padding: 6px 20px 4px; }
+  header h1 { font-size: 19px; }
+  .controls { padding: 5px 20px; }
+  main { gap: 8px; padding: 6px 16px 8px; }
+  .left, .right { gap: 7px; }
+  .card { padding: 5px 8px; }
+  .card h2 { font-size: 12px; margin-bottom: 3px; }
+  .code { font-size: 12.5px; line-height: 1.3; }
+  .vars .v { font-size: 13.5px; padding: 1px 4px; }
+  .caption { font-size: 16px; min-height: 2.9em; padding: 6px 12px; }
+  .card.grow svg { min-height: 100px; }
+  footer { padding: 3px 16px 4px; font-size: 11.5px; }
+}
+@media (min-width: 1800px) and (min-height: 1000px) {
+  body { font-size: 18px; }
+  header h1 { font-size: 26px; }
+  select, button { font-size: 17px; }
+  .code { font-size: 17px; }
+  .vars .v { font-size: 18px; }
+  .caption { font-size: 21px; }
+}
+@media (max-width: 900px) { .card.grow svg { min-height: 260px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Remembering the first letter: a plain RNN and an LSTM</h1>
+  <p>Long short-term memory &middot; the gradient through a long delay; the forget gate and the memory cell</p>
+</header>
+
+<div class="controls" role="toolbar" aria-label="Demo controls">
+  <div class="group">
+    <button id="bRun" class="primary">Train<kbd>Space</kbd></button>
+    <button id="bStep">One step<kbd>N</kbd></button>
+    <button id="bReset">Reset<kbd>R</kbd></button>
+  </div>
+  <span class="sep" aria-hidden="true"></span>
+  <div class="group">
+    <label for="delay">Delay</label>
+    <select id="delay">
+      <option value="5">5 letters</option>
+      <option value="10">10 letters</option>
+      <option value="20" selected>20 letters</option>
+      <option value="30">30 letters</option>
+    </select>
+    <label for="fb">LSTM forget-gate bias</label>
+    <select id="fb">
+      <option value="0">0</option>
+      <option value="1">1</option>
+      <option value="2" selected>2</option>
+    </select>
+  </div>
+  <div class="group">
+    <button id="bEx">New example<kbd>E</kbd></button>
+  </div>
+</div>
+
+<main>
+  <section class="left">
+    <div class="card grow">
+      <h2>Loss on 200 test sequences: RNN (blue), LSTM (red); dashed: guessing among four letters</h2>
+      <svg id="chart" role="img" aria-label="Test loss of the RNN and the LSTM by training step"></svg>
+    </div>
+    <div class="caption" id="caption" aria-live="polite"></div>
+    <div class="card grow">
+      <h2 id="gradTitle">Gradient of the loss at “?” reaching each step of the example (log scale)</h2>
+      <svg id="grad" role="img" aria-label="Norm of the gradient at each step for the RNN and the LSTM"></svg>
+    </div>
+  </section>
+
+  <section class="right">
+    <div class="card grow">
+      <h2>The example: the LSTM's forget gate and memory cell at each step</h2>
+      <svg id="example" role="img" aria-label="An example sequence, the predictions of both models, the forget gate and the memory cell"></svg>
+    </div>
+    <div class="card">
+      <h2>The two cells, one step</h2>
+      <pre class="code" id="code"></pre>
+    </div>
+    <div class="card">
+      <h2>Variables</h2>
+      <div class="vars" id="vars"></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  &copy; 2026 Kuk Jin Jang, Hongik University &middot;
+  <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>; commercial or
+  closed-source use by permission (<a href="mailto:jangkj@hongik.ac.kr">jangkj@hongik.ac.kr</a>) &middot;
+  the RNN and the LSTM follow d2l.ai 9.4 and 10.1; the task is the delayed recall of Hochreiter &amp; Schmidhuber (1997)
+</footer>
+
+<script>
+"use strict";
+// ---- the task: remember the first letter ----------------------------------------------
+const KEYS = ["a", "b", "c", "d"], NOISE = ["e", "f", "g", "h", "i", "j", "k", "l"];
+const TOK = KEYS.concat(NOISE, ["?"]), V = TOK.length, K = KEYS.length, QUERY = V - 1, H = 16;
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function makeSeq(L, r) {   // the letter to remember, L noise letters, the question mark; the answer is the first letter
+  const key = Math.floor(r() * K), s = [key];
+  for (let j = 0; j < L; j++) s.push(K + Math.floor(r() * NOISE.length));
+  s.push(QUERY); return { s, y: key };
+}
+
+// ---- the two models -------------------------------------------------------------------
+const sig = (z) => 1 / (1 + Math.exp(-z));
+function makeModel(kind, seed, fb) {
+  const r = rng(seed), g = () => Math.sqrt(-2 * Math.log(1 - r())) * Math.cos(2 * Math.PI * r());
+  const G = kind === "lstm" ? 4 : 1;   // the LSTM has four blocks: input gate, forget gate, output gate, candidate
+  const mk = (n, s) => Float64Array.from({ length: n }, () => g() * s);
+  const P = { Wx: mk(V * G * H, 0.5), Wh: mk(H * G * H, 1 / Math.sqrt(H)), b: new Float64Array(G * H), Wo: mk(H * K, 1 / Math.sqrt(H)), bo: new Float64Array(K) };
+  if (kind === "lstm") for (let u = 0; u < H; u++) P.b[H + u] = fb;   // a positive forget-gate bias starts with F near 1
+  const M = { kind, G, P, m: {}, v: {}, t: 0 };
+  for (const k in P) { M.m[k] = new Float64Array(P[k].length); M.v[k] = new Float64Array(P[k].length); }
+  M.nparam = Object.values(P).reduce((a, p) => a + p.length, 0);
+  return M;
+}
+function forward(M, s) {
+  const { G, P } = M, T = s.length, hs = [new Float64Array(H)], cs = [new Float64Array(H)], gs = [];
+  for (let t = 0; t < T; t++) {
+    const hp = hs[t], z = new Float64Array(G * H), x = s[t];
+    for (let j = 0; j < G * H; j++) z[j] = P.b[j] + P.Wx[x * G * H + j];
+    for (let k = 0; k < H; k++) { const hk = hp[k]; if (hk === 0) continue; const row = k * G * H; for (let j = 0; j < G * H; j++) z[j] += hk * P.Wh[row + j]; }
+    const h = new Float64Array(H);
+    if (M.kind === "rnn") { for (let u = 0; u < H; u++) h[u] = Math.tanh(z[u]); gs.push(null); cs.push(null); }
+    else {
+      const c = new Float64Array(H), gate = { i: new Float64Array(H), f: new Float64Array(H), o: new Float64Array(H), g: new Float64Array(H), tc: new Float64Array(H) };
+      for (let u = 0; u < H; u++) {
+        const i = sig(z[u]), f = sig(z[H + u]), o = sig(z[2 * H + u]), gg = Math.tanh(z[3 * H + u]);
+        c[u] = f * cs[t][u] + i * gg; const tc = Math.tanh(c[u]); h[u] = o * tc;
+        gate.i[u] = i; gate.f[u] = f; gate.o[u] = o; gate.g[u] = gg; gate.tc[u] = tc;
+      }
+      cs.push(c); gs.push(gate);
+    }
+    hs.push(h);
+  }
+  const hT = hs[T], p = new Float64Array(K); let mx = -Infinity;
+  for (let k = 0; k < K; k++) { let a = P.bo[k]; for (let u = 0; u < H; u++) a += hT[u] * P.Wo[u * K + k]; p[k] = a; if (a > mx) mx = a; }
+  let Z = 0; for (let k = 0; k < K; k++) { p[k] = Math.exp(p[k] - mx); Z += p[k]; } for (let k = 0; k < K; k++) p[k] /= Z;
+  return { hs, cs, gs, p };
+}
+function zerosLike(M) { const Gr = {}; for (const k in M.P) Gr[k] = new Float64Array(M.P[k].length); return Gr; }
+// backpropagation through time; adds into Gr; mem[t] = ||dl/dh_t|| (RNN) or ||dl/dC_t|| (LSTM)
+function backward(M, s, y, Gr, scale) {
+  const { G, P } = M, T = s.length, f = forward(M, s), hT = f.hs[T];
+  const loss = -Math.log(Math.max(1e-300, f.p[y]));
+  let dh = new Float64Array(H); const dc = new Float64Array(H);
+  for (let k = 0; k < K; k++) { const d = (f.p[k] - (k === y ? 1 : 0)) * scale; Gr.bo[k] += d;
+    for (let u = 0; u < H; u++) { Gr.Wo[u * K + k] += hT[u] * d; dh[u] += P.Wo[u * K + k] * d; } }
+  const mem = new Array(T).fill(0);
+  for (let t = T - 1; t >= 0; t--) {
+    const hp = f.hs[t], dz = new Float64Array(G * H); let n = 0;
+    if (M.kind === "rnn") { const h = f.hs[t + 1]; for (let u = 0; u < H; u++) { n += dh[u] * dh[u]; dz[u] = dh[u] * (1 - h[u] * h[u]); } }
+    else {
+      const g = f.gs[t], cp = f.cs[t];
+      for (let u = 0; u < H; u++) {
+        const dcu = dc[u] + dh[u] * g.o[u] * (1 - g.tc[u] * g.tc[u]); n += dcu * dcu;
+        dz[u] = dcu * g.g[u] * g.i[u] * (1 - g.i[u]);
+        dz[H + u] = dcu * cp[u] * g.f[u] * (1 - g.f[u]);
+        dz[2 * H + u] = dh[u] * g.tc[u] * g.o[u] * (1 - g.o[u]);
+        dz[3 * H + u] = dcu * g.i[u] * (1 - g.g[u] * g.g[u]);
+        dc[u] = dcu * g.f[u];   // the memory path: multiplied only by the forget gate
+      }
+    }
+    mem[t] = Math.sqrt(n) / scale;
+    const x = s[t], dhp = new Float64Array(H);
+    for (let j = 0; j < G * H; j++) { Gr.b[j] += dz[j]; Gr.Wx[x * G * H + j] += dz[j]; }
+    for (let k = 0; k < H; k++) { const row = k * G * H, hk = hp[k]; let a = 0;
+      for (let j = 0; j < G * H; j++) { Gr.Wh[row + j] += hk * dz[j]; a += P.Wh[row + j] * dz[j]; } dhp[k] = a; }
+    dh = dhp;
+  }
+  return { loss, mem, p: f.p };
+}
+function trainStep(M, batch, lr, theta) {   // one Adam step on the clipped gradient
+  const Gr = zerosLike(M); let loss = 0;
+  for (const { s, y } of batch) loss += backward(M, s, y, Gr, 1 / batch.length).loss;
+  let n = 0; for (const k in Gr) for (const g of Gr[k]) n += g * g; n = Math.sqrt(n);
+  const c = theta && n > theta ? theta / n : 1;
+  M.t++; const b1 = 0.9, b2 = 0.999, bc1 = 1 - b1 ** M.t, bc2 = 1 - b2 ** M.t;
+  for (const k in M.P) { const p = M.P[k], g = Gr[k], m = M.m[k], v = M.v[k];
+    for (let j = 0; j < p.length; j++) { const gj = g[j] * c; m[j] = b1 * m[j] + (1 - b1) * gj; v[j] = b2 * v[j] + (1 - b2) * gj * gj;
+      p[j] -= lr * (m[j] / bc1) / (Math.sqrt(v[j] / bc2) + 1e-8); } }
+  return { loss: loss / batch.length, gnorm: n };
+}
+function evaluate(M, set) { let l = 0, a = 0;
+  for (const { s, y } of set) { const p = forward(M, s).p; l -= Math.log(Math.max(1e-300, p[y])); let b = 0; for (let k = 1; k < K; k++) if (p[k] > p[b]) b = k; a += b === y; }
+  return { loss: l / set.length, acc: a / set.length }; }
+
+// ---- training state -------------------------------------------------------------------
+const LR = 0.01, BATCH = 32, THETA = 1, MAXSTEP = 1500;
+let R, M, data, test, ex, exR, step, hist, reached, running = false, exSeed = 1;
+const delay = () => +document.getElementById("delay").value;
+const fbias = () => +document.getElementById("fb").value;
+function newExample() { const r = rng(1000 + exSeed++); ex = makeSeq(delay(), r); }
+function reset() {
+  R = makeModel("rnn", 1, 0); M = makeModel("lstm", 1, fbias());
+  data = rng(7); const tr = rng(99); test = Array.from({ length: 200 }, () => makeSeq(delay(), tr));
+  step = 0; reached = { rnn: null, lstm: null }; exSeed = 1; newExample();
+  const a = evaluate(R, test), b = evaluate(M, test); hist = [[0, a.loss, b.loss, a.acc, b.acc]];
+}
+function doStep() {
+  const batch = Array.from({ length: BATCH }, () => makeSeq(delay(), data));   // the same minibatch for both
+  trainStep(R, batch, LR, THETA); trainStep(M, batch, LR, THETA); step++;
+  if (step % 25 === 0 || step === 1) {
+    const a = evaluate(R, test), b = evaluate(M, test); hist.push([step, a.loss, b.loss, a.acc, b.acc]);
+    if (reached.rnn === null && a.acc >= 0.95) reached.rnn = step;
+    if (reached.lstm === null && b.acc >= 0.95) reached.lstm = step;
+  }
+  if (step >= MAXSTEP) running = false;
+}
+
+// ---- drawing ----------------------------------------------------------------------------
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const a in attrs) e.setAttribute(a, attrs[a]);
+  if (text !== undefined) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const mono = "ui-monospace, Menlo, Consolas, monospace";
+function size(svg) { const W = svg.clientWidth || 600, Hh = svg.clientHeight || 220; svg.setAttribute("viewBox", `0 0 ${W} ${Hh}`); return [W, Hh]; }
+function drawChart() {
+  const svg = document.getElementById("chart"); svg.innerHTML = ""; const [W, Hh] = size(svg);
+  const px = 40, py = 8, pw = W - px - 12, ph = Hh - py - 26, TT = Math.max(300, step), lo = 0, hi = 1.8;
+  const X = (s) => px + s / TT * pw, Y = (l) => py + ph - (Math.min(hi, Math.max(lo, l)) - lo) / (hi - lo) * ph;
+  el("rect", { x: px, y: py, width: pw, height: ph, fill: "none", stroke: css("--rule") }, svg);
+  for (const l of [0, 0.5, 1, 1.5]) { el("line", { x1: px, x2: px + pw, y1: Y(l), y2: Y(l), stroke: css("--grid") }, svg);
+    el("text", { x: px - 5, y: Y(l) + 4, "text-anchor": "end", "font-size": 11, fill: css("--muted") }, svg, l.toFixed(1)); }
+  el("line", { x1: px, x2: px + pw, y1: Y(Math.log(K)), y2: Y(Math.log(K)), stroke: css("--muted"), "stroke-dasharray": "5 4" }, svg);
+  el("text", { x: px + pw - 4, y: Y(Math.log(K)) - 5, "text-anchor": "end", "font-size": 11, fill: css("--muted") }, svg, "ln 4 = 1.39");
+  const path = (col, i) => { if (hist.length < 2) return; el("path", { d: hist.map((q, j) => (j ? "L" : "M") + X(q[0]).toFixed(1) + " " + Y(q[i]).toFixed(1)).join(""), fill: "none", stroke: col, "stroke-width": 2.4 }, svg); };
+  path(css("--line"), 1); path(css("--err"), 2);
+  el("text", { x: px, y: Hh - 6, "font-size": 11.5, fill: css("--muted") }, svg, "0");
+  el("text", { x: px + pw, y: Hh - 6, "text-anchor": "end", "font-size": 11.5, fill: css("--muted") }, svg, `step ${step}`);
+}
+function heat(v) { const a = Math.min(1, Math.abs(v)); return v >= 0 ? `rgba(192,0,0,${a.toFixed(2)})` : `rgba(47,111,191,${a.toFixed(2)})`; }
+function drawGrad() {
+  const svg = document.getElementById("grad"); svg.innerHTML = ""; const [W, Hh] = size(svg);
+  const s = ex.s, T = s.length, rows = [["RNN  ‖∂ℓ/∂hₜ‖", R, css("--line")], ["LSTM ‖∂ℓ/∂Cₜ‖", M, css("--err")]];
+  const x0 = 104, bw = (W - x0 - 8) / T, rh = (Hh - 26) / 2;
+  rows.forEach(([name, mdl, col], k) => {
+    const d = backward(mdl, s, ex.y, zerosLike(mdl), 1).mem, last = d[T - 1] || 1e-300, y0 = 4 + k * rh;
+    el("text", { x: 4, y: y0 + rh / 2 - 2, "font-size": 12.5, "font-family": mono, fill: col }, svg, name);
+    el("text", { x: 4, y: y0 + rh / 2 + 13, "font-size": 11, fill: css("--muted") }, svg, `first: ${(d[0] / last).toExponential(0)} × last`);
+    for (let t = 0; t < T; t++) {   // log scale: eight decades below the last step
+      const lg = Math.max(0, Math.min(1, (Math.log10(Math.max(d[t], 1e-300) / last) + 8) / 8)), h = lg * (rh - 8);
+      el("rect", { x: x0 + t * bw + 0.5, y: y0 + rh - 4 - h, width: Math.max(1, bw - 1), height: h, fill: col, opacity: t === 0 ? 1 : 0.7 }, svg);
+    }
+  });
+  const fs = Math.min(13, bw * 1.1);
+  if (fs >= 6) for (let t = 0; t < T; t++) el("text", { x: x0 + t * bw + bw / 2, y: Hh - 6, "text-anchor": "middle", "font-size": fs, "font-family": mono, fill: t === 0 ? css("--err") : css("--muted") }, svg, TOK[s[t]]);
+}
+function drawExample() {
+  const svg = document.getElementById("example"); svg.innerHTML = ""; const [W, Hh] = size(svg);
+  const s = ex.s, T = s.length, fr = forward(R, s), fm = forward(M, s);
+  const x0 = 70, cw = (W - x0 - 8) / T, fs = Math.min(14, cw * 1.1);
+  // the sequence
+  for (let t = 0; t < T; t++) if (fs >= 6) el("text", { x: x0 + t * cw + cw / 2, y: 16, "text-anchor": "middle", "font-size": fs, "font-family": mono, "font-weight": t === 0 ? 700 : 400, fill: t === 0 ? css("--err") : css("--ink") }, svg, TOK[s[t]]);
+  el("text", { x: 4, y: 16, "font-size": 12, fill: css("--muted") }, svg, "input");
+  // the forget gate (mean over the 16 units) and the memory cell, H rows x T columns
+  const top = 30, avail = Hh - top - 64, fh = Math.max(24, avail * 0.3), ch = Math.max(40, avail - fh - 14);
+  el("text", { x: 4, y: top + fh / 2 + 4, "font-size": 12, fill: css("--muted") }, svg, "forget F");
+  el("rect", { x: x0, y: top, width: cw * T, height: fh, fill: "none", stroke: css("--rule") }, svg);
+  const fy = (v) => top + fh - v * fh;
+  el("path", { d: fm.gs.map((g, t) => (t ? "L" : "M") + (x0 + t * cw + cw / 2).toFixed(1) + " " + fy(g.f.reduce((a, b) => a + b, 0) / H).toFixed(1)).join(""), fill: "none", stroke: css("--exact"), "stroke-width": 2.2 }, svg);
+  el("text", { x: x0 + cw * T - 3, y: top + 11, "text-anchor": "end", "font-size": 10.5, fill: css("--muted") }, svg, "1");
+  el("text", { x: x0 + cw * T - 3, y: top + fh - 3, "text-anchor": "end", "font-size": 10.5, fill: css("--muted") }, svg, "0");
+  const cy = top + fh + 14, rh = ch / H;
+  el("text", { x: 4, y: cy + ch / 2 - 4, "font-size": 12, fill: css("--muted") }, svg, "cell C");
+  el("text", { x: 4, y: cy + ch / 2 + 11, "font-size": 10.5, fill: css("--muted") }, svg, "(16 units)");
+  for (let t = 0; t < T; t++) for (let u = 0; u < H; u++) el("rect", { x: x0 + t * cw, y: cy + u * rh, width: Math.max(1, cw - 0.6), height: rh, fill: heat(fm.cs[t + 1][u]) }, svg);
+  // the answers at "?"
+  const ay = cy + ch + 12, bw = (W - x0 - 8) / 2 - 10;
+  [["RNN", fr.p, css("--line")], ["LSTM", fm.p, css("--err")]].forEach(([name, p, col], k) => {
+    const bx = x0 + k * (bw + 20);
+    el("text", { x: k ? bx : 4, y: ay + 12, "font-size": 12, fill: col }, svg, k ? `${name}:` : `answer  ${name}:`);
+    const lx = bx + (k ? 42 : 34), cell = (bw - (k ? 42 : 34)) / K;
+    for (let j = 0; j < K; j++) {
+      el("rect", { x: lx + j * cell + 14, y: ay + 34 - p[j] * 30, width: cell - 18, height: Math.max(0.5, p[j] * 30), fill: j === ex.y ? css("--pos") : css("--muted") }, svg);
+      el("text", { x: lx + j * cell + 7, y: ay + 34, "text-anchor": "middle", "font-size": 12, "font-family": mono, fill: j === ex.y ? css("--pos") : css("--ink") }, svg, KEYS[j]);
+    }
+  });
+}
+function renderCode() {
+  document.getElementById("code").innerHTML =
+`<span class="c"># plain RNN: the whole state is rewritten at every step</span>
+<span class="r">h = tanh(x @ W_xh + h @ W_hh + b_h)</span>
+<span class="c"># LSTM (d2l 10.1): gates between 0 and 1 decide what to keep</span>
+I, F, O = sigmoid(x @ W_xi + h @ W_hi + b_i), ...   <span class="c"># input, forget, output</span>
+C_tilde = tanh(x @ W_xc + h @ W_hc + b_c)
+<span class="l">C = F * C + I * C_tilde</span>   <span class="c"># F = 1, I = 0: C is kept as it is</span>
+h = O * tanh(C)`;
+}
+function caption() {
+  const c = document.getElementById("caption"), L = delay(), last = hist[hist.length - 1];
+  const pct = (a) => `${Math.round(100 * a)}%`;
+  let m;
+  if (step === 0) m = `Each sequence is a letter to remember (a, b, c or d), ${L} random letters, then “?”: the answer is the first letter. Only the answer at “?” is trained. Press Space to train both models on the same minibatches.`;
+  else if (reached.lstm !== null && reached.rnn === null) m = `The LSTM is right on ${pct(last[4])} of the test sequences (95% at step ${reached.lstm}); the RNN on ${pct(last[3])}. In the lower panel, the RNN's gradient shrinks at every step back through the delay; the LSTM's reaches the first letter along C, multiplied only by F.`;
+  else if (reached.lstm !== null && reached.rnn !== null) m = `Both models learned this delay (95% at step ${reached.rnn} for the RNN, ${reached.lstm} for the LSTM). Try a longer delay: the RNN's gradient at the first letter becomes too small to learn from.`;
+  else if (reached.rnn !== null) m = `The RNN learned this run first (step ${reached.rnn}); the LSTM is at ${pct(last[4])}. With forget-gate bias 0 or 1 the cell forgets: F < 1 at every step shrinks C, and the gradient along it.`;
+  else m = `Step ${step}: RNN ${pct(last[3])}, LSTM ${pct(last[4])} right on the test sequences; 25% is guessing.${fbias() < 2 ? " With this forget-gate bias, F starts near " + sig(fbias()).toFixed(2) + ", and " + sig(fbias()).toFixed(2) + `^${L} = ` + (sig(fbias()) ** L).toExponential(0) + "." : ""}`;
+  c.textContent = m;
+}
+function renderVars() {
+  const box = document.getElementById("vars"); box.innerHTML = ""; const q = hist[hist.length - 1];
+  const add = (k, v, wide) => { const d = document.createElement("div"); d.className = "v" + (wide ? " wide" : "");
+    d.innerHTML = `<span class="k">${k}</span><span class="val">${v}</span>`; box.appendChild(d); };
+  add("step", step); add("delay", `${delay()} letters`);
+  add("RNN test loss", q[1].toFixed(3)); add("LSTM test loss", q[2].toFixed(3));
+  add("RNN correct", `${Math.round(100 * q[3])}%`); add("LSTM correct", `${Math.round(100 * q[4])}%`);
+  add("parameters", `RNN ${R.nparam.toLocaleString()}, LSTM ${M.nparam.toLocaleString()} (16 units each)`, true);
+  add("training", `Adam, lr ${LR}, minibatch ${BATCH}, clipping θ = ${THETA}`, true);
+}
+function render() { drawChart(); drawGrad(); drawExample(); renderCode(); caption(); renderVars(); }
+
+// ---- controls ---------------------------------------------------------------------------
+function loop() {
+  if (!running) return;
+  const t0 = performance.now();
+  while (running && performance.now() - t0 < 40) doStep();
+  render(); if (running) requestAnimationFrame(loop); else setRun(false);
+}
+function setRun(on) { running = on; document.getElementById("bRun").firstChild.textContent = on ? "Pause" : "Train"; if (on) requestAnimationFrame(loop); else render(); }
+document.getElementById("bRun").onclick = () => setRun(!running);
+document.getElementById("bStep").onclick = () => { setRun(false); doStep(); render(); };
+document.getElementById("bReset").onclick = () => { setRun(false); reset(); render(); };
+document.getElementById("bEx").onclick = () => { newExample(); render(); };
+document.getElementById("delay").onchange = () => { setRun(false); reset(); render(); };
+document.getElementById("fb").onchange = () => { setRun(false); reset(); render(); };
+document.addEventListener("keydown", (x) => {
+  if (x.target.tagName === "SELECT") return;
+  const key = x.key.toLowerCase();
+  if (key === " ") { x.preventDefault(); document.getElementById("bRun").click(); }
+  else if (key === "n") document.getElementById("bStep").click();
+  else if (key === "r") document.getElementById("bReset").click();
+  else if (key === "e") document.getElementById("bEx").click();
+});
+window.addEventListener("resize", render);
+reset(); render();
+</script>
+</body>
+</html>
